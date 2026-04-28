@@ -1,0 +1,174 @@
+"use client";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { toast } from "sonner";
+import { Plus } from "lucide-react";
+
+import { 
+  fetchCustomers, 
+  fetchCustomerStats, 
+  getCustomerById 
+} from "@/redux/actions/customerActions";
+import { fetchShops } from "@/redux/actions/shopActions"; 
+
+import { CustomerFilter } from "@/components/filters/CustomerFilter";
+import { CustomerTable } from "@/components/tables/CustomerTable";
+import { BasePagination } from "@/components/pagination/BasePagination"; 
+import { PageSkeleton } from "@/components/loaders-and-skeletons/PageSkeleton";
+import { CustomerStats } from "@/components/cards/statCards/CustomerStats";
+
+import { CustomerModal } from "@/components/modals/addUpdate/CustomerModal";
+import { PrescriptionModal } from "@/components/modals/addUpdate/PrescriptionModal"; 
+import { CustomerViewModal } from "@/components/modals/view/CustomerViewModal";
+
+export default function CustomersPage() {
+  const { t, language } = useLanguage();
+  const dispatch = useDispatch();
+  const isArabic = language === 'ar';
+
+  const initialFilters = { search: '', status: [], isWebsiteUser: [], loyaltyTier: [] };
+  const [filters, setFilters] = useState(initialFilters);
+  
+  const [isAddOpen, setAddOpen] = useState(false);
+  const [isPrescriptionOpen, setPrescriptionOpen] = useState(false);
+  const [viewData, setViewData] = useState({ isOpen: false, data: null });
+  const [selectedItem, setSelectedItem] = useState(null); 
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 15;
+  
+  const debounceTimer = useRef(null);
+  const initFetched = useRef(false);
+
+  const { 
+    customers = { items: [], loading: false, pagination: {} }, 
+    stats = null 
+  } = useSelector(state => state.customers || {});
+
+  useEffect(() => {
+    if (!initFetched.current) {
+      dispatch(fetchShops({ limit: 100 }));
+      initFetched.current = true;
+    }
+  }, [dispatch]);
+
+  const loadData = useCallback(() => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+
+    debounceTimer.current = setTimeout(() => {
+      dispatch(fetchCustomerStats());
+      
+      const cleanFilters = { page: currentPage, limit: itemsPerPage, ...filters };
+      Object.keys(cleanFilters).forEach(key => {
+        if (
+          cleanFilters[key] === '' || 
+          cleanFilters[key] === null || 
+          cleanFilters[key] === undefined || 
+          (Array.isArray(cleanFilters[key]) && cleanFilters[key].length === 0)
+        ) {
+          delete cleanFilters[key];
+        }
+      });
+
+      dispatch(fetchCustomers(cleanFilters));
+    }, 300);
+  }, [dispatch, itemsPerPage, currentPage, filters]);
+
+  useEffect(() => { 
+    loadData(); 
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [loadData]); 
+
+  const handleApplyFilters = (overrideSearch) => {
+    if (typeof overrideSearch === 'string' && overrideSearch !== filters.search) {
+      setFilters(prev => ({ ...prev, search: overrideSearch }));
+    }
+    setCurrentPage(1);
+  };
+
+  const handleClearFilters = () => {
+    setFilters(initialFilters);
+    setCurrentPage(1);
+  };
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleViewProfile = async (customer) => {
+    try {
+      const toastId = toast.loading("Loading profile...");
+      const fullProfile = await dispatch(getCustomerById(customer._id)).unwrap();
+      toast.dismiss(toastId);
+      
+      setViewData({ isOpen: true, data: fullProfile });
+    } catch (error) {
+      toast.error("Failed to load customer profile");
+    }
+  };
+
+  if (customers.loading && !customers.items.length && !stats) return <PageSkeleton />;
+
+  const safeCustomerData = Array.isArray(customers?.items) ? customers.items : [];
+
+  return (
+    <div className="space-y-6" dir={isArabic ? 'rtl' : 'ltr'}>
+      <CustomerStats stats={stats} />
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 w-full border-b border-neutral-200 dark:border-neutral-800 pb-4">
+        <h1 className="text-xl font-black uppercase tracking-widest text-black dark:text-white">
+          {t("customers") || "Customer Directory"}
+        </h1>
+        
+        <button onClick={() => { setSelectedItem(null); setAddOpen(true); }} className="flex items-center gap-2 px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black hover:bg-[#E9B10C] hover:text-black transition-colors rounded-sm shrink-0">
+          <Plus size={14} strokeWidth={3} /> <span className="text-[10px] uppercase font-black tracking-widest">{t("addCustomer") || "Add Customer"}</span>
+        </button>
+      </div>
+
+      <div className="bg-white dark:bg-[#111111] border border-neutral-200 dark:border-neutral-800 p-4 sm:p-6 rounded-sm min-h-[400px]">
+        <CustomerFilter 
+           filters={filters} 
+           setFilters={setFilters} 
+           onApply={handleApplyFilters} 
+           onClear={handleClearFilters} 
+        />
+        
+        <CustomerTable 
+            data={safeCustomerData} 
+            loading={customers?.loading} 
+            onView={handleViewProfile} 
+            onEdit={(item) => { setSelectedItem(item); setAddOpen(true); }} 
+            onAddPrescription={(item) => { setSelectedItem(item); setPrescriptionOpen(true); }} 
+        />
+        
+        <BasePagination 
+           currentPage={currentPage} 
+           totalPages={customers.pagination?.totalPages || 1} 
+           onPageChange={handlePageChange} 
+        />
+      </div>
+
+      <CustomerModal 
+         isOpen={isAddOpen} 
+         onClose={() => setAddOpen(false)} 
+         initialData={selectedItem} 
+         onSuccess={() => loadData()} 
+      />
+      <CustomerViewModal 
+         isOpen={viewData.isOpen} 
+         onClose={() => setViewData({isOpen: false, data: null})} 
+         data={viewData.data} 
+      />
+      <PrescriptionModal 
+         isOpen={isPrescriptionOpen} 
+         onClose={() => setPrescriptionOpen(false)} 
+         customer={selectedItem} 
+      />
+    </div>
+  );
+}
