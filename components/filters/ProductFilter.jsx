@@ -1,6 +1,6 @@
 "use client";
 import { BaseFilter } from "./BaseFilter";
-import { MultiSelect } from "@/components/ui/multi-select"; 
+import { MultiSelect } from "@/components/ui/multi-select";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 export function ProductFilter({ filters, setFilters, onApply, onClear, data = [] }) {
@@ -8,67 +8,52 @@ export function ProductFilter({ filters, setFilters, onApply, onClear, data = []
 
   const suggestions = Array.from(new Set(data.map(item => item.name).filter(Boolean)));
 
-  const handleChange = (field, value) => setFilters(prev => ({ ...prev, [field]: value }));
-
-  const inputClass = "flex min-h-[36px] w-full bg-white dark:bg-[#111111] border border-neutral-200 dark:border-neutral-800 rounded-sm py-1.5 px-3 text-[10px] font-bold outline-none focus:border-[#E9B10C] transition-colors shadow-sm placeholder:text-neutral-500 placeholder:font-medium";
+  const handleChange = (field, value) => {
+    setFilters(prev => ({ ...prev, [field]: value }));
+  };
 
   return (
-    <BaseFilter 
-      search={filters.search} 
-      onSearchChange={(val) => handleChange('search', val)} 
-      onClear={onClear} 
+    <BaseFilter
+      search={filters.search}
+      onSearchChange={(val) => handleChange("search", val)}
+      onClear={onClear}
       onApply={onApply}
       suggestions={suggestions}
     >
-      <MultiSelect 
-        placeholder={t('allTypes') || 'All Types'}
+      <MultiSelect
+        placeholder={t("allTypes") || "Product Type"}
         options={[
-          { label: 'Frames', value: 'FRAME' },
-          { label: 'Sunglasses', value: 'SUNGLASSES' },
-          { label: 'Lenses', value: 'LENS' },
-          { label: 'Accessories', value: 'ACCESSORY' }
+          { label: "Frame", value: "FRAME" },
+          { label: "Sunglasses", value: "SUNGLASSES" },
+          { label: "Lens", value: "LENS" },
+          { label: "Accessory", value: "ACCESSORY" }
         ]}
-        selected={filters.productType}
-        onChange={(val) => handleChange('productType', val)}
+        selected={filters.productType || []}
+        onChange={(val) => handleChange("productType", val)}
       />
-
-      <MultiSelect 
-        placeholder={t('allGenders') || 'All Genders'}
+      <MultiSelect
+        placeholder={t("allStatuses") || "Status"}
         options={[
-          { label: 'Unisex', value: 'UNISEX' },
-          { label: 'Male', value: 'MALE' },
-          { label: 'Female', value: 'FEMALE' },
-          { label: 'Kids', value: 'KIDS' }
+          { label: "Active", value: "ACTIVE" },
+          { label: "Inactive", value: "INACTIVE" },
+          { label: "Out of Stock", value: "OUT_OF_STOCK" },
+          { label: "Draft", value: "DRAFT" }
         ]}
-        selected={filters.gender}
-        onChange={(val) => handleChange('gender', val)}
+        selected={filters.status || []}
+        onChange={(val) => handleChange("status", val)}
       />
-
-      <MultiSelect 
-        placeholder={t('allStatuses') || 'All Statuses'}
+      <MultiSelect
+        placeholder={t("priceRange") || "Price Range"}
         options={[
-          { label: 'Active', value: 'ACTIVE' },
-          { label: 'Inactive', value: 'INACTIVE' },
-          { label: 'Out of Stock', value: 'OUT_OF_STOCK' },
-          { label: 'Draft', value: 'DRAFT' }
+          { label: "Under 50", value: "0-50" },
+          { label: "50 - 100", value: "50-100" },
+          { label: "100 - 250", value: "100-250" },
+          { label: "250 - 500", value: "250-500" },
+          { label: "500 - 1000", value: "500-1000" },
+          { label: "Above 1000", value: "1000-999999" }
         ]}
-        selected={filters.status}
-        onChange={(val) => handleChange('status', val)}
-      />
-
-      <input 
-        type="number" 
-        placeholder={t('minPrice') || 'Min Price'} 
-        value={filters.minPrice} 
-        onChange={(e) => handleChange('minPrice', e.target.value)} 
-        className={inputClass} 
-      />
-      <input 
-        type="number" 
-        placeholder={t('maxPrice') || 'Max Price'} 
-        value={filters.maxPrice} 
-        onChange={(e) => handleChange('maxPrice', e.target.value)} 
-        className={inputClass} 
+        selected={filters.priceRange || []}
+        onChange={(val) => handleChange("priceRange", val)}
       />
     </BaseFilter>
   );

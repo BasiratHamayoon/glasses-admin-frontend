@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
@@ -20,110 +20,137 @@ import { ProductViewModal } from "@/components/modals/view/ProductViewModal";
 import { CategoryViewModal } from "@/components/modals/view/CategoryViewModal";
 
 import { PageSkeleton } from "@/components/loaders-and-skeletons/PageSkeleton";
-import { BasePagination } from "@/components/pagination/BasePagination"; 
-import { ProductStats } from "@/components/cards/statCards/ProductStats"; 
+import { BasePagination } from "@/components/pagination/BasePagination";
+import { ProductStats } from "@/components/cards/statCards/ProductStats";
+
+const ITEMS_PER_PAGE = 10;
+
+const initialProductFilters = { search: "", productType: [], status: [], priceRange: [] };
+const initialCategoryFilters = { search: "" };
+
+function buildProductParams(filters, page) {
+  const params = { page, limit: ITEMS_PER_PAGE };
+  if (filters.search?.trim()) params.search = filters.search.trim();
+  if (filters.productType?.length) params.productType = filters.productType.join(",");
+  if (filters.status?.length) params.status = filters.status.join(",");
+  if (filters.priceRange?.length) {
+    const mins = filters.priceRange.map(r => Number(r.split("-")[0]));
+    const maxs = filters.priceRange.map(r => Number(r.split("-")[1]));
+    params.minPrice = Math.min(...mins);
+    params.maxPrice = Math.max(...maxs);
+  }
+  return params;
+}
+
+function buildCategoryParams(filters, page) {
+  const params = { page, limit: ITEMS_PER_PAGE };
+  if (filters.search?.trim()) params.search = filters.search.trim();
+  return params;
+}
 
 export default function ProductsPage() {
   const { t, language } = useLanguage();
   const dispatch = useDispatch();
-  const isArabic = language === 'ar';
+  const isArabic = language === "ar";
 
   const [activeTab, setActiveTab] = useState("products");
-  
-  const initialProductFilters = { search: '', productType: [], gender: [], status: [], minPrice: '', maxPrice: '' };
   const [productFilters, setProductFilters] = useState(initialProductFilters);
-
-  const initialCategoryFilters = { search: '' };
   const [categoryFilters, setCategoryFilters] = useState(initialCategoryFilters);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const [isCatModalOpen, setCatModalOpen] = useState(false);
   const [isProdModalOpen, setProdModalOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null); 
+  const [selectedItem, setSelectedItem] = useState(null);
   const [viewProduct, setViewProduct] = useState({ isOpen: false, data: null });
   const [viewCategory, setViewCategory] = useState({ isOpen: false, data: null });
-  const [deleteData, setDeleteData] = useState({ isOpen: false, item: null, type: '', loading: false });
+  const [deleteData, setDeleteData] = useState({ isOpen: false, item: null, type: "", loading: false });
 
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
   const debounceTimer = useRef(null);
+  const isMounted = useRef(false);
+
+  const stateRef = useRef({ activeTab, productFilters, categoryFilters, currentPage });
+
+  useEffect(() => {
+    stateRef.current = { activeTab, productFilters, categoryFilters, currentPage };
+  });
 
   const { items: products = [], pagination: prodPagination = {}, loading: prodLoading = false } = useSelector(state => state.products || {});
   const { items: categories = [], pagination: catPagination = {}, loading: catLoading = false } = useSelector(state => state.categories || {});
 
-  const loadData = useCallback((tab, page = 1, currentProdFilters = productFilters, currentCatFilters = categoryFilters) => {
-    if (tab === 'products') {
-      const cleanFilters = { page, limit: itemsPerPage, ...currentProdFilters };
-      Object.keys(cleanFilters).forEach(key => {
-        if (cleanFilters[key] === '' || cleanFilters[key] == null || (Array.isArray(cleanFilters[key]) && cleanFilters[key].length === 0)) {
-          delete cleanFilters[key];
-        }
-      });
-      dispatch(fetchProducts(cleanFilters));
-    } else if (tab === 'categories') {
-      const cleanFilters = { page, limit: itemsPerPage, ...currentCatFilters };
-      Object.keys(cleanFilters).forEach(key => {
-        if (cleanFilters[key] === '' || cleanFilters[key] == null || (Array.isArray(cleanFilters[key]) && cleanFilters[key].length === 0)) {
-          delete cleanFilters[key];
-        }
-      });
-      dispatch(fetchCategories(cleanFilters));
+  const runFetch = useCallback((tab, page, prodF, catF) => {
+    if (tab === "products") {
+      dispatch(fetchProducts(buildProductParams(prodF, page)));
+    } else {
+      dispatch(fetchCategories(buildCategoryParams(catF, page)));
     }
-  }, [dispatch, itemsPerPage]);
+  }, [dispatch]);
 
-  useEffect(() => { 
+  const scheduleFetch = useCallback((tab, page, prodF, catF, delay = 300) => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      runFetch(tab, page, prodF, catF);
+    }, delay);
+  }, [runFetch]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted.current) {
+      isMounted.current = true;
+      runFetch("products", 1, initialProductFilters, initialCategoryFilters);
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted.current) return;
+    scheduleFetch(activeTab, currentPage, productFilters, categoryFilters, 0);
+  }, [activeTab, currentPage]);
+
+  useEffect(() => {
+    if (!isMounted.current) return;
+    if (stateRef.current.activeTab !== "products") return;
+    scheduleFetch("products", 1, productFilters, stateRef.current.categoryFilters, 300);
+    setCurrentPage(prev => (prev === 1 ? 1 : 1));
+  }, [
+    productFilters.search,
+    productFilters.productType,
+    productFilters.status,
+    productFilters.priceRange,
+  ]);
+
+  useEffect(() => {
+    if (!isMounted.current) return;
+    if (stateRef.current.activeTab !== "categories") return;
+    scheduleFetch("categories", 1, stateRef.current.productFilters, categoryFilters, 300);
+    setCurrentPage(prev => (prev === 1 ? 1 : 1));
+  }, [categoryFilters.search]);
+
+  const refreshCurrent = useCallback(() => {
+    const { activeTab: tab, currentPage: page, productFilters: pf, categoryFilters: cf } = stateRef.current;
+    runFetch(tab, page, pf, cf);
+  }, [runFetch]);
+
+  const handleTabChange = (tabId) => {
+    if (tabId === stateRef.current.activeTab) return;
+    setActiveTab(tabId);
     setCurrentPage(1);
-    loadData(activeTab, 1, productFilters, categoryFilters); 
-  }, [activeTab, loadData]); 
-
-  const handleApplyProductFilters = (overrideSearch) => { 
-    const filtersToUse = typeof overrideSearch === 'string' ? { ...productFilters, search: overrideSearch } : productFilters;
-    if (typeof overrideSearch === 'string' && overrideSearch !== productFilters.search) {
-      setProductFilters(filtersToUse);
-    }
-    setCurrentPage(1); 
-    
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => {
-      loadData('products', 1, filtersToUse, categoryFilters);
-    }, 300);
   };
 
-  const handleClearProductFilters = () => { 
-    setProductFilters(initialProductFilters); 
-    setCurrentPage(1); 
-    
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => {
-      loadData('products', 1, initialProductFilters, categoryFilters);
-    }, 300);
+  const handlePageChange = (page) => setCurrentPage(page);
+
+  const handleClearProductFilters = () => {
+    setProductFilters(initialProductFilters);
+    setCurrentPage(1);
   };
 
-  const handleApplyCategoryFilters = (overrideSearch) => { 
-    const filtersToUse = typeof overrideSearch === 'string' ? { ...categoryFilters, search: overrideSearch } : categoryFilters;
-    if (typeof overrideSearch === 'string' && overrideSearch !== categoryFilters.search) {
-      setCategoryFilters(filtersToUse);
-    }
-    setCurrentPage(1); 
-    
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => {
-      loadData('categories', 1, productFilters, filtersToUse);
-    }, 300);
-  };
-
-  const handleClearCategoryFilters = () => { 
-    setCategoryFilters(initialCategoryFilters); 
-    setCurrentPage(1); 
-    
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => {
-      loadData('categories', 1, productFilters, initialCategoryFilters);
-    }, 300);
-  };
-
-  const handlePageChange = (page) => {
-    setCurrentPage(page);
-    loadData(activeTab, page, productFilters, categoryFilters);
+  const handleClearCategoryFilters = () => {
+    setCategoryFilters(initialCategoryFilters);
+    setCurrentPage(1);
   };
 
   const handleViewProduct = (product) => setViewProduct({ isOpen: true, data: product });
@@ -132,18 +159,21 @@ export default function ProductsPage() {
   const handleEditCategory = (category) => { setSelectedItem(category); setCatModalOpen(true); };
   const openCreateProduct = () => { setSelectedItem(null); setProdModalOpen(true); };
   const openCreateCategory = () => { setSelectedItem(null); setCatModalOpen(true); };
-  const handleDeleteRequest = (item, type) => { setDeleteData({ isOpen: true, item, type, loading: false }); };
+  const handleDeleteRequest = (item, type) => setDeleteData({ isOpen: true, item, type, loading: false });
 
   const confirmDelete = async () => {
     setDeleteData(prev => ({ ...prev, loading: true }));
     try {
-      if (deleteData.type === 'product') await dispatch(deleteProduct(deleteData.item._id)).unwrap();
-      else if (deleteData.type === 'category') await dispatch(deleteCategory(deleteData.item._id)).unwrap();
-      toast.success('Deleted successfully');
-      setDeleteData({ isOpen: false, item: null, type: '', loading: false });
-      loadData(activeTab, currentPage, productFilters, categoryFilters);
+      if (deleteData.type === "product") {
+        await dispatch(deleteProduct(deleteData.item._id)).unwrap();
+      } else {
+        await dispatch(deleteCategory(deleteData.item._id)).unwrap();
+      }
+      toast.success("Deleted successfully");
+      setDeleteData({ isOpen: false, item: null, type: "", loading: false });
+      refreshCurrent();
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Error deleting item');
+      toast.error(err?.response?.data?.message || "Error deleting item");
       setDeleteData(prev => ({ ...prev, loading: false }));
     }
   };
@@ -151,48 +181,112 @@ export default function ProductsPage() {
   const safeProducts = Array.isArray(products) ? products : [];
   const safeCategories = Array.isArray(categories) ? categories : [];
 
-  if ((prodLoading || catLoading) && (!safeProducts.length && !safeCategories.length)) return <PageSkeleton />;
+  if (!isMounted.current && (prodLoading || catLoading)) return <PageSkeleton />;
 
   return (
-    <div className="space-y-6" dir={isArabic ? 'rtl' : 'ltr'}>
+    <div className="space-y-6" dir={isArabic ? "rtl" : "ltr"}>
       <ProductStats products={safeProducts} categories={safeCategories} />
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 w-full border-b border-neutral-200 dark:border-neutral-800 pb-4">
         <div className="flex overflow-x-auto scrollbar-hide bg-white dark:bg-[#111111] p-1 border border-neutral-200 dark:border-neutral-800 rounded-sm w-full sm:w-auto">
           {[{ id: "products", label: t("products") }, { id: "categories", label: t("categories") }].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-none px-6 py-2 whitespace-nowrap text-[10px] uppercase tracking-[0.2em] font-black transition-all rounded-sm ${activeTab === tab.id ? 'bg-[#E9B10C] text-black shadow-sm' : 'text-neutral-500 hover:text-black dark:hover:text-white'}`}>
+            <button
+              key={tab.id}
+              onClick={() => handleTabChange(tab.id)}
+              className={`flex-none px-6 py-2 whitespace-nowrap text-[10px] uppercase tracking-[0.2em] font-black transition-all rounded-sm ${activeTab === tab.id ? "bg-[#E9B10C] text-black shadow-sm" : "text-neutral-500 hover:text-black dark:hover:text-white"}`}
+            >
               {tab.label}
             </button>
           ))}
         </div>
-        <button onClick={activeTab === 'products' ? openCreateProduct : openCreateCategory} className="flex items-center justify-center gap-2 px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black hover:bg-[#E9B10C] hover:text-black transition-colors rounded-sm w-full sm:w-auto shrink-0">
+
+        <button
+          onClick={activeTab === "products" ? openCreateProduct : openCreateCategory}
+          className="flex items-center justify-center gap-2 px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black hover:bg-[#E9B10C] hover:text-black transition-colors rounded-sm w-full sm:w-auto shrink-0"
+        >
           <Plus size={14} strokeWidth={3} />
-          <span className="text-[10px] uppercase tracking-widest font-black">{activeTab === 'products' ? t("addProduct") : t("addCategory")}</span>
+          <span className="text-[10px] uppercase tracking-widest font-black">
+            {activeTab === "products" ? t("addProduct") : t("addCategory")}
+          </span>
         </button>
       </div>
 
       <div className="bg-white dark:bg-[#111111] border border-neutral-200 dark:border-neutral-800 p-4 sm:p-6 rounded-sm min-h-[400px]">
-        {activeTab === 'products' && (
+        {activeTab === "products" && (
           <>
-            <ProductFilter data={safeProducts} filters={productFilters} setFilters={setProductFilters} onApply={handleApplyProductFilters} onClear={handleClearProductFilters} />
-            <ProductTable products={safeProducts} loading={prodLoading} onView={handleViewProduct} onEdit={handleEditProduct} onDelete={(item) => handleDeleteRequest(item, 'product')} />
-            <BasePagination currentPage={currentPage} totalPages={prodPagination?.totalPages || 1} onPageChange={handlePageChange} />
+            <ProductFilter
+              data={safeProducts}
+              filters={productFilters}
+              setFilters={setProductFilters}
+              onApply={() => {}}
+              onClear={handleClearProductFilters}
+            />
+            <ProductTable
+              products={safeProducts}
+              loading={prodLoading}
+              onView={handleViewProduct}
+              onEdit={handleEditProduct}
+              onDelete={(item) => handleDeleteRequest(item, "product")}
+            />
+            <BasePagination
+              currentPage={currentPage}
+              totalPages={prodPagination?.totalPages || 1}
+              onPageChange={handlePageChange}
+            />
           </>
         )}
-        {activeTab === 'categories' && (
+
+        {activeTab === "categories" && (
           <>
-            <CategoryFilter data={safeCategories} filters={categoryFilters} setFilters={setCategoryFilters} onApply={handleApplyCategoryFilters} onClear={handleClearCategoryFilters} />
-            <CategoryTable categories={safeCategories} loading={catLoading} onView={handleViewCategory} onEdit={handleEditCategory} onDelete={(item) => handleDeleteRequest(item, 'category')} />
-            <BasePagination currentPage={currentPage} totalPages={catPagination?.totalPages || 1} onPageChange={handlePageChange} />
+            <CategoryFilter
+              filters={categoryFilters}
+              setFilters={setCategoryFilters}
+              onApply={() => {}}
+              onClear={handleClearCategoryFilters}
+            />
+            <CategoryTable
+              categories={safeCategories}
+              loading={catLoading}
+              onView={handleViewCategory}
+              onEdit={handleEditCategory}
+              onDelete={(item) => handleDeleteRequest(item, "category")}
+            />
+            <BasePagination
+              currentPage={currentPage}
+              totalPages={catPagination?.totalPages || 1}
+              onPageChange={handlePageChange}
+            />
           </>
         )}
       </div>
 
-      <CategoryModal isOpen={isCatModalOpen} onClose={() => setCatModalOpen(false)} initialData={selectedItem} />
-      <ProductModal isOpen={isProdModalOpen} onClose={() => setProdModalOpen(false)} initialData={selectedItem} />
-      <ProductViewModal isOpen={viewProduct.isOpen} onClose={() => setViewProduct({ isOpen: false, data: null })} product={viewProduct.data} />
-      <CategoryViewModal isOpen={viewCategory.isOpen} onClose={() => setViewCategory({ isOpen: false, data: null })} category={viewCategory.data} />
-      <ConfirmationModal isOpen={deleteData.isOpen} onClose={() => setDeleteData({ ...deleteData, isOpen: false })} onConfirm={confirmDelete} loading={deleteData.loading} message={isArabic ? `هل أنت متأكد أنك تريد حذف ${deleteData.item?.name}؟` : `Are you sure you want to delete ${deleteData.item?.name}?`} />
+      <CategoryModal
+        isOpen={isCatModalOpen}
+        onClose={() => { setCatModalOpen(false); refreshCurrent(); }}
+        initialData={selectedItem}
+      />
+      <ProductModal
+        isOpen={isProdModalOpen}
+        onClose={() => { setProdModalOpen(false); refreshCurrent(); }}
+        initialData={selectedItem}
+      />
+      <ProductViewModal
+        isOpen={viewProduct.isOpen}
+        onClose={() => setViewProduct({ isOpen: false, data: null })}
+        product={viewProduct.data}
+      />
+      <CategoryViewModal
+        isOpen={viewCategory.isOpen}
+        onClose={() => setViewCategory({ isOpen: false, data: null })}
+        category={viewCategory.data}
+      />
+      <ConfirmationModal
+        isOpen={deleteData.isOpen}
+        onClose={() => setDeleteData({ ...deleteData, isOpen: false })}
+        onConfirm={confirmDelete}
+        loading={deleteData.loading}
+        message={isArabic ? `هل أنت متأكد أنك تريد حذف ${deleteData.item?.name}؟` : `Are you sure you want to delete ${deleteData.item?.name}?`}
+      />
     </div>
   );
 }
