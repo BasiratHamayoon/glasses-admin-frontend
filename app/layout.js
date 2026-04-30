@@ -9,8 +9,8 @@ const cairo = Cairo({ subsets: ['arabic', 'latin'], weight: ['400', '600', '700'
 const montserrat = Montserrat({ subsets: ['latin'], weight: ['400', '500', '700', '900'], variable: '--font-montserrat', display: 'swap' });
 
 export const metadata = {
-  title: 'EYENOIR | Admin Panel',
-  description: 'Admin Dashboard for EYENOIR',
+  title: 'نظر للبصريات | لوحة التحكم',
+  description: 'لوحة تحكم نظر للبصريات استوشن',
 };
 
 export default function RootLayout({ children }) {
