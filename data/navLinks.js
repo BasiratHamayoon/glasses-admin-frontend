@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Package, Store, Box, MonitorSmartphone, 
   Wallet, Banknote, Users, UserCircle, UsersRound, 
   FileText, BarChart, Settings, 
-  ShoppingCart, ClipboardList
+  ShoppingCart, ClipboardList, Layers
 } from "lucide-react";
 
 export const navLinks = [
@@ -11,6 +11,7 @@ export const navLinks = [
     items: [
       { name: 'dashboard', href: '/dashboard', icon: LayoutDashboard },
       { name: 'products', href: '/products', icon: Package },
+      { name: 'categories', href: '/categories', icon: Layers }, // Added Categories here
       { name: 'orders', href: '/orders', icon: ShoppingCart },
       { name: 'stockMmt', href: '/stock', icon: Box },
       { name: 'shops', href: '/shops', icon: Store },

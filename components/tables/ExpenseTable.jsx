@@ -13,8 +13,8 @@ export const ExpenseTable = ({ data, loading, onView, onApprove, onPay, onReject
         </div>
       )
     },
-    { 
-      header: "Shop", 
+    {
+      header: "Shop",
       render: (row) => (
         <div className="flex flex-col">
           <span className="text-[9px] uppercase tracking-wider font-black text-neutral-800 dark:text-neutral-200">
@@ -26,22 +26,30 @@ export const ExpenseTable = ({ data, loading, onView, onApprove, onPay, onReject
             </span>
           )}
         </div>
-      ) 
+      )
     },
-    { 
-      header: "Category", 
-      render: (row) => <span className="text-[9px] uppercase tracking-wider font-bold">{row.category}</span> 
+    {
+      header: "Category",
+      render: (row) => <span className="text-[9px] uppercase tracking-wider font-bold">{row.category}</span>
     },
-    { 
-      header: "Total Amount", 
-      render: (row) => <span className="text-[11px] font-black">SAR {row.totalAmount?.toLocaleString() || 0}</span> 
+    {
+      header: "Total Amount",
+      render: (row) => (
+        <span className="text-[11px] font-black flex items-center gap-1">
+          ⃁ {row.totalAmount?.toLocaleString() || 0}
+        </span>
+      )
     },
-    { 
-      header: "Due Amount", 
-      render: (row) => <span className="text-[11px] font-black text-red-500">SAR {row.dueAmount?.toLocaleString() || 0}</span> 
+    {
+      header: "Due Amount",
+      render: (row) => (
+        <span className="text-[11px] font-black text-red-500 flex items-center gap-1">
+          ⃁ {row.dueAmount?.toLocaleString() || 0}
+        </span>
+      )
     },
-    { 
-      header: "Status", 
+    {
+      header: "Status",
       render: (row) => {
         const statusColors = {
           PAID: 'bg-green-500/10 text-green-500',
@@ -51,7 +59,6 @@ export const ExpenseTable = ({ data, loading, onView, onApprove, onPay, onReject
           REJECTED: 'bg-red-500/10 text-red-500',
           CANCELLED: 'bg-neutral-500/10 text-neutral-500'
         };
-
         return (
           <span className={`px-2 py-1 text-[8px] uppercase tracking-widest font-black rounded-sm ${statusColors[row.status] || 'bg-neutral-500/10 text-neutral-500'}`}>
             {row.status}

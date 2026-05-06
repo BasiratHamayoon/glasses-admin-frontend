@@ -1,21 +1,42 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { createExpense } from "@/redux/actions/financeActions";
 import { BaseModal } from "../BaseModal";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
 export const ExpenseModal = ({ isOpen, onClose }) => {
   const dispatch = useDispatch();
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
+  const [modalReady, setModalReady] = useState(false);
 
-  const { items: shops = [] } = useSelector(state => state.shops?.shops || { items: [] });
+  const { items: shops = [] } = useSelector(
+    (state) => state.shops?.shops || { items: [] }
+  );
 
-  const [formData, setFormData] = useState({
-    title: "", shop: "", category: "RENT", paymentMethod: "CASH", vendorName: "",
-    amount: 0, taxPercentage: 0, description: ""
-  });
+  const defaultForm = {
+    title: "",
+    shop: "",
+    category: "RENT",
+    paymentMethod: "CASH",
+    vendorName: "",
+    amount: "",
+    taxPercentage: "",
+    description: "",
+  };
+
+  const [formData, setFormData] = useState(defaultForm);
+
+  useEffect(() => {
+    if (isOpen) {
+      setModalReady(false);
+      setFormData(defaultForm);
+      setTimeout(() => setModalReady(true), 50);
+    }
+  }, [isOpen]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -23,106 +44,172 @@ export const ExpenseModal = ({ isOpen, onClose }) => {
     try {
       const payload = {
         ...formData,
-        items: [{
-          description: formData.title,
-          quantity: 1,
-          rate: formData.amount,
-          amount: formData.amount,
-          taxPercentage: formData.taxPercentage
-        }]
+        amount: Number(formData.amount) || 0,
+        taxPercentage: Number(formData.taxPercentage) || 0,
+        items: [
+          {
+            description: formData.title,
+            quantity: 1,
+            rate: Number(formData.amount) || 0,
+            amount: Number(formData.amount) || 0,
+            taxPercentage: Number(formData.taxPercentage) || 0,
+          },
+        ],
       };
 
-      // If Head Office (No Shop) is selected, remove the shop key entirely 
-      // so Mongoose doesn't try to cast an empty string to an ObjectId.
-      if (!payload.shop) {
-        delete payload.shop;
-      }
+      if (!payload.shop) delete payload.shop;
 
       await dispatch(createExpense(payload)).unwrap();
-      toast.success('Expense Created Successfully');
-      onClose();
-    } catch (err) { 
-      // Safely extract the string message from the error object to prevent React crashing
-      const errorMessage = typeof err === 'string' 
-        ? err 
-        : err?.response?.data?.message 
-          || err?.message 
-          || 'Failed to create expense';
-          
-      toast.error(errorMessage); 
-    } 
-    finally { 
-      setLoading(false); 
+      toast.success(t("expenseCreated"));
+      onClose(true);
+    } catch (err) {
+      const msg =
+        typeof err === "string"
+          ? err
+          : err?.response?.data?.message || err?.message || t("operationFailed");
+      toast.error(msg);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const inputClass = "w-full bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 p-2 text-[11px] outline-none rounded-sm focus:border-[#E9B10C]";
-  const labelClass = "block text-[9px] uppercase font-bold mb-1.5 text-neutral-500";
+  const inputClass =
+    "w-full bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 p-2 text-[11px] outline-none rounded-sm focus:border-[#E9B10C] transition-colors text-black dark:text-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+  const labelClass =
+    "block text-[9px] uppercase font-bold mb-1.5 text-neutral-500";
 
   return (
-    <BaseModal isOpen={isOpen} onClose={onClose} title="Log New Expense" maxWidth="max-w-2xl">
-      <form onSubmit={handleSubmit} className="space-y-4 p-2">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
-            <label className={labelClass}>Title *</label>
-            <input type="text" required value={formData.title} onChange={e=>setFormData({...formData, title:e.target.value})} className={inputClass} />
-          </div>
-          
-          <div>
-            <label className={labelClass}>Shop (Optional)</label>
-            <select value={formData.shop} onChange={e=>setFormData({...formData, shop:e.target.value})} className={inputClass}>
-              <option value="">Head Office (No Shop)</option>
-              {shops.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelClass}>Category *</label>
-            <select required value={formData.category} onChange={e=>setFormData({...formData, category:e.target.value})} className={inputClass}>
-              <option value="RENT">Rent</option>
-              <option value="ELECTRICITY">Electricity</option>
-              <option value="SALARY">Salary</option>
-              <option value="INVENTORY">Inventory / Purchases</option>
-              <option value="MARKETING">Marketing</option>
-              <option value="OTHER">Other</option>
-            </select>
-          </div>
-
-          <div>
-            <label className={labelClass}>Base Amount *</label>
-            <input type="number" required min="1" value={formData.amount} onChange={e=>setFormData({...formData, amount:Number(e.target.value)})} className={inputClass} />
-          </div>
-          <div>
-            <label className={labelClass}>Tax Percentage (%)</label>
-            <input type="number" min="0" value={formData.taxPercentage} onChange={e=>setFormData({...formData, taxPercentage:Number(e.target.value)})} className={inputClass} />
-          </div>
-
-          <div>
-            <label className={labelClass}>Payment Method</label>
-            <select required value={formData.paymentMethod} onChange={e=>setFormData({...formData, paymentMethod:e.target.value})} className={inputClass}>
-              <option value="CASH">Cash</option>
-              <option value="BANK_TRANSFER">Bank Transfer</option>
-              <option value="CARD">Card</option>
-              <option value="UPI">UPI</option>
-            </select>
-          </div>
-          <div>
-            <label className={labelClass}>Vendor Name</label>
-            <input type="text" value={formData.vendorName} onChange={e=>setFormData({...formData, vendorName:e.target.value})} className={inputClass} />
-          </div>
-          
-          <div className="col-span-2">
-            <label className={labelClass}>Description</label>
-            <textarea rows="2" value={formData.description} onChange={e=>setFormData({...formData, description:e.target.value})} className={inputClass} />
-          </div>
+    <BaseModal isOpen={isOpen} onClose={() => onClose(false)} title={t("logExpense")} maxWidth="max-w-2xl">
+      {!modalReady ? (
+        <div className="flex flex-col items-center justify-center h-48 gap-4">
+          <Loader2 size={28} className="animate-spin text-[#E9B10C]" />
+          <span className="text-[10px] uppercase tracking-widest font-bold text-neutral-500">
+            {t("loadingModal")}
+          </span>
         </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4 p-2">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <label className={labelClass}>{t("title")} *</label>
+              <input
+                type="text"
+                required
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                className={inputClass}
+              />
+            </div>
 
-        <div className="flex justify-end pt-4 border-t border-neutral-200 dark:border-neutral-800 gap-2">
-          <button type="button" onClick={onClose} className="px-6 py-2 bg-transparent text-[10px] uppercase font-bold border rounded-sm">Cancel</button>
-          <button type="submit" disabled={loading} className="px-6 py-2 bg-[#E9B10C] text-black text-[10px] uppercase font-bold rounded-sm flex items-center gap-2">
-            {loading ? <Loader2 size={14} className="animate-spin" /> : 'Create Expense'}
-          </button>
-        </div>
-      </form>
+            <div>
+              <label className={labelClass}>{t("shop")} ({t("optional")})</label>
+              <select
+                value={formData.shop}
+                onChange={(e) => setFormData({ ...formData, shop: e.target.value })}
+                className={inputClass}
+              >
+                <option value="">{t("headOffice")}</option>
+                {shops.map((s) => (
+                  <option key={s._id} value={s._id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass}>{t("category")} *</label>
+              <select
+                required
+                value={formData.category}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                className={inputClass}
+              >
+                <option value="RENT">{t("rent")}</option>
+                <option value="ELECTRICITY">{t("electricity")}</option>
+                <option value="SALARY">{t("salary")}</option>
+                <option value="INVENTORY">{t("inventoryPurchases")}</option>
+                <option value="MARKETING">{t("marketing")}</option>
+                <option value="OTHER">{t("other")}</option>
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass}>{t("baseAmount")} (⃁) *</label>
+              <input
+                type="number"
+                required
+                min="1"
+                inputMode="decimal"
+                value={formData.amount}
+                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>{t("taxPercentage")} (%)</label>
+              <input
+                type="number"
+                min="0"
+                inputMode="decimal"
+                value={formData.taxPercentage}
+                onChange={(e) => setFormData({ ...formData, taxPercentage: e.target.value })}
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>{t("paymentMethod")}</label>
+              <select
+                value={formData.paymentMethod}
+                onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+                className={inputClass}
+              >
+                <option value="CASH">{t("cash")}</option>
+                <option value="BANK_TRANSFER">{t("bankTransfer")}</option>
+                <option value="CARD">{t("card")}</option>
+                <option value="UPI">UPI</option>
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass}>{t("vendorName")}</label>
+              <input
+                type="text"
+                value={formData.vendorName}
+                onChange={(e) => setFormData({ ...formData, vendorName: e.target.value })}
+                className={inputClass}
+              />
+            </div>
+
+            <div className="col-span-2">
+              <label className={labelClass}>{t("description")}</label>
+              <textarea
+                rows="2"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                className={inputClass}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-4 border-t border-neutral-200 dark:border-neutral-800 gap-2">
+            <button
+              type="button"
+              onClick={() => onClose(false)}
+              className="px-6 py-2 text-[10px] uppercase font-bold text-neutral-500 border border-neutral-300 dark:border-neutral-700 rounded-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+            >
+              {t("cancel")}
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-6 py-2 bg-[#E9B10C] text-black text-[10px] uppercase font-bold rounded-sm flex items-center gap-2 hover:bg-[#d4a00a] transition-colors disabled:opacity-60"
+            >
+              {loading ? <Loader2 size={14} className="animate-spin" /> : t("createExpense")}
+            </button>
+          </div>
+        </form>
+      )}
     </BaseModal>
   );
 };

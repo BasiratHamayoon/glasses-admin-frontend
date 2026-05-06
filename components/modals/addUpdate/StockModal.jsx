@@ -1,13 +1,13 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { updateStock } from "@/redux/actions/inventoryActions";
+import { updateStock, addStockToMultipleShops } from "@/redux/actions/inventoryActions";
 import { BaseModal } from "../BaseModal";
 import { toast } from "sonner";
-import { Loader2, Search, X, ChevronDown } from "lucide-react";
+import { Loader2, Search, X, ChevronDown, Check } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 
-function SearchableSelect({ label, value, onChange, options, placeholder, required, labelClass, inputClass }) {
+function SearchableSelect({ label, value, onChange, options, placeholder, required, labelClass, inputClass, loading }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const wrapperRef = useRef(null);
@@ -27,27 +27,14 @@ function SearchableSelect({ label, value, onChange, options, placeholder, requir
   }, []);
 
   useEffect(() => {
-    if (isOpen && inputRef.current) {
-      inputRef.current.focus();
-    }
+    if (isOpen && inputRef.current) inputRef.current.focus();
   }, [isOpen]);
 
   const filteredOptions = options.filter(opt =>
-    opt.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    opt.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (opt.sku && opt.sku.toLowerCase().includes(searchTerm.toLowerCase())) ||
     (opt.code && opt.code.toLowerCase().includes(searchTerm.toLowerCase()))
   );
-
-  const handleSelect = (optionId) => {
-    onChange(optionId);
-    setIsOpen(false);
-    setSearchTerm("");
-  };
-
-  const handleClear = (e) => {
-    e.stopPropagation();
-    onChange("");
-    setSearchTerm("");
-  };
 
   return (
     <div>
@@ -55,19 +42,26 @@ function SearchableSelect({ label, value, onChange, options, placeholder, requir
       <div className="relative" ref={wrapperRef}>
         <button
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={() => !loading && setIsOpen(!isOpen)}
           className={`${inputClass} flex items-center justify-between gap-2 text-left cursor-pointer min-h-[36px]`}
         >
-          <span className={selectedOption ? "text-black dark:text-white" : "text-neutral-400"}>
-            {selectedOption ? selectedOption.name : placeholder || "Choose..."}
-          </span>
+          {loading ? (
+            <span className="flex items-center gap-2 text-neutral-400">
+              <Loader2 size={12} className="animate-spin" />
+              <span className="text-[10px]">Loading...</span>
+            </span>
+          ) : (
+            <span className={selectedOption ? "text-black dark:text-white truncate" : "text-neutral-400 truncate"}>
+              {selectedOption ? selectedOption.name : placeholder || "Choose..."}
+            </span>
+          )}
           <div className="flex items-center gap-1 shrink-0">
-            {selectedOption && (
+            {selectedOption && !loading && (
               <span
                 role="button"
                 tabIndex={0}
-                onClick={handleClear}
-                onKeyDown={(e) => { if (e.key === "Enter") handleClear(e); }}
+                onClick={(e) => { e.stopPropagation(); onChange(""); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onChange(""); } }}
                 className="hover:text-red-500 transition-colors p-0.5"
               >
                 <X size={12} />
@@ -77,7 +71,7 @@ function SearchableSelect({ label, value, onChange, options, placeholder, requir
           </div>
         </button>
 
-        {isOpen && (
+        {isOpen && !loading && (
           <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-[#111111] border border-neutral-200 dark:border-neutral-800 rounded-sm shadow-lg z-50 overflow-hidden">
             <div className="p-2 border-b border-neutral-200 dark:border-neutral-800">
               <div className="relative">
@@ -87,21 +81,16 @@ function SearchableSelect({ label, value, onChange, options, placeholder, requir
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder={`Search ${label.replace(" *", "")}...`}
+                  placeholder="Search..."
                   className="w-full pl-7 pr-3 py-1.5 text-[10px] font-bold bg-neutral-50 dark:bg-[#0a0a0a] border border-neutral-200 dark:border-neutral-700 rounded-sm outline-none focus:border-[#E9B10C] transition-colors"
                 />
                 {searchTerm && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchTerm("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
-                  >
+                  <button type="button" onClick={() => setSearchTerm("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600">
                     <X size={10} />
                   </button>
                 )}
               </div>
             </div>
-
             <div className="max-h-[200px] overflow-y-auto">
               {filteredOptions.length === 0 ? (
                 <div className="px-3 py-4 text-center text-[10px] text-neutral-400 font-bold uppercase tracking-widest">
@@ -112,26 +101,165 @@ function SearchableSelect({ label, value, onChange, options, placeholder, requir
                   <button
                     key={opt._id}
                     type="button"
-                    onClick={() => handleSelect(opt._id)}
-                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-[11px] font-bold transition-colors text-left ${value === opt._id ? "bg-[#E9B10C]/10 text-[#E9B10C]" : "hover:bg-neutral-100 dark:hover:bg-[#1a1a1a] text-black dark:text-white"}`}
+                    onClick={() => { onChange(opt._id); setIsOpen(false); setSearchTerm(""); }}
+                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-[11px] font-bold transition-colors text-left ${
+                      value === opt._id
+                        ? "bg-[#E9B10C]/10 text-[#E9B10C]"
+                        : "hover:bg-neutral-100 dark:hover:bg-[#1a1a1a] text-black dark:text-white"
+                    }`}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="truncate">{opt.name}</div>
-                      {opt.code && (
-                        <div className="text-[9px] text-neutral-400 font-medium truncate">{opt.code}</div>
+                      {(opt.sku || opt.code) && (
+                        <div className="text-[9px] text-neutral-400 font-medium truncate">{opt.sku || opt.code}</div>
                       )}
                     </div>
-                    {value === opt._id && (
-                      <div className="w-1.5 h-1.5 rounded-full bg-[#E9B10C] shrink-0" />
-                    )}
+                    {value === opt._id && <Check size={12} className="shrink-0" />}
                   </button>
                 ))
               )}
             </div>
           </div>
         )}
-
         {required && <input type="text" value={value} onChange={() => {}} required className="sr-only" tabIndex={-1} />}
+      </div>
+    </div>
+  );
+}
+
+function MultiSearchableSelect({ label, values, onChange, options, placeholder, labelClass, inputClass, loading }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const wrapperRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setIsOpen(false);
+        setSearchTerm("");
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && inputRef.current) inputRef.current.focus();
+  }, [isOpen]);
+
+  const filteredOptions = options.filter(opt =>
+    opt.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (opt.code && opt.code.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
+  const toggleOption = (id) => {
+    if (values.includes(id)) onChange(values.filter(v => v !== id));
+    else onChange([...values, id]);
+  };
+
+  const selectedOptions = options.filter(opt => values.includes(opt._id));
+
+  return (
+    <div>
+      <label className={labelClass}>{label}</label>
+      <div className="relative" ref={wrapperRef}>
+        <button
+          type="button"
+          onClick={() => !loading && setIsOpen(!isOpen)}
+          className={`${inputClass} flex items-center justify-between gap-2 text-left cursor-pointer min-h-[36px]`}
+        >
+          {loading ? (
+            <span className="flex items-center gap-2 text-neutral-400">
+              <Loader2 size={12} className="animate-spin" />
+              <span className="text-[10px]">Loading...</span>
+            </span>
+          ) : (
+            <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+              {selectedOptions.length === 0 ? (
+                <span className="text-neutral-400 text-[11px]">{placeholder || "Choose..."}</span>
+              ) : (
+                selectedOptions.map(opt => (
+                  <span key={opt._id} className="flex items-center gap-1 px-1.5 py-0.5 bg-[#E9B10C]/20 text-[#E9B10C] text-[9px] font-black uppercase rounded-sm">
+                    {opt.name}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); onChange(values.filter(v => v !== opt._id)); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onChange(values.filter(v => v !== opt._id)); } }}
+                      className="hover:text-red-500 transition-colors"
+                    >
+                      <X size={10} />
+                    </span>
+                  </span>
+                ))
+              )}
+            </div>
+          )}
+          <ChevronDown size={12} className={`transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`} />
+        </button>
+
+        {isOpen && !loading && (
+          <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-[#111111] border border-neutral-200 dark:border-neutral-800 rounded-sm shadow-lg z-50 overflow-hidden">
+            <div className="p-2 border-b border-neutral-200 dark:border-neutral-800">
+              <div className="relative">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search..."
+                  className="w-full pl-7 pr-3 py-1.5 text-[10px] font-bold bg-neutral-50 dark:bg-[#0a0a0a] border border-neutral-200 dark:border-neutral-700 rounded-sm outline-none focus:border-[#E9B10C] transition-colors"
+                />
+                {searchTerm && (
+                  <button type="button" onClick={() => setSearchTerm("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600">
+                    <X size={10} />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="max-h-[200px] overflow-y-auto">
+              {filteredOptions.length === 0 ? (
+                <div className="px-3 py-4 text-center text-[10px] text-neutral-400 font-bold uppercase tracking-widest">No results found</div>
+              ) : (
+                filteredOptions.map(opt => (
+                  <button
+                    key={opt._id}
+                    type="button"
+                    onClick={() => toggleOption(opt._id)}
+                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-[11px] font-bold transition-colors text-left ${
+                      values.includes(opt._id)
+                        ? "bg-[#E9B10C]/10 text-[#E9B10C]"
+                        : "hover:bg-neutral-100 dark:hover:bg-[#1a1a1a] text-black dark:text-white"
+                    }`}
+                  >
+                    <div className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center shrink-0 ${
+                      values.includes(opt._id) ? "bg-[#E9B10C] border-[#E9B10C]" : "border-neutral-300 dark:border-neutral-600"
+                    }`}>
+                      {values.includes(opt._id) && <Check size={9} className="text-black" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="truncate">{opt.name}</div>
+                      {opt.code && <div className="text-[9px] text-neutral-400 font-medium truncate">{opt.code}</div>}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+            {values.length > 0 && (
+              <div className="p-2 border-t border-neutral-200 dark:border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => onChange([])}
+                  className="w-full text-[9px] uppercase tracking-widest font-bold text-red-500 hover:text-red-600 transition-colors"
+                >
+                  Clear All ({values.length})
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -141,156 +269,202 @@ export const StockModal = ({ isOpen, onClose, initialData = null }) => {
   const dispatch = useDispatch();
   const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
+  const [modalReady, setModalReady] = useState(false);
 
-  const productsRaw = useSelector(state => state.products);
-  const products = Array.isArray(productsRaw) ? productsRaw : productsRaw?.items || [];
-
-  const shopsRaw = useSelector(state => state.shops);
-  const shops = Array.isArray(shopsRaw) ? shopsRaw : shopsRaw?.shops?.items || shopsRaw?.items || [];
+  const { inventoryProducts, inventoryShops } = useSelector(state => state.inventory);
+  const products = inventoryProducts.items;
+  const shops = inventoryShops.items;
 
   const [formData, setFormData] = useState({
     product: "",
-    shop: "",
-    quantity: 0,
-    costPrice: 0,
-    sellingPrice: 0,
-    minStockLevel: 5
+    shops: [],
+    quantity: "",
+    costPrice: "",
+    sellingPrice: "",
+    minStockLevel: "",
   });
 
   useEffect(() => {
     if (isOpen) {
+      setModalReady(false);
       if (initialData) {
         setFormData({
           product: initialData.product?._id || "",
-          shop: initialData.shop?._id || "",
-          quantity: initialData.quantity || 0,
-          costPrice: initialData.costPrice || 0,
-          sellingPrice: initialData.sellingPrice || 0,
-          minStockLevel: initialData.minStockLevel || 5
+          shops: initialData.shop?._id ? [initialData.shop._id] : [],
+          quantity: initialData.quantity ?? "",
+          costPrice: initialData.costPrice ?? "",
+          sellingPrice: initialData.sellingPrice ?? "",
+          minStockLevel: initialData.minStockLevel ?? "",
         });
       } else {
         setFormData({
           product: "",
-          shop: "",
-          quantity: 0,
-          costPrice: 0,
-          sellingPrice: 0,
-          minStockLevel: 5
+          shops: [],
+          quantity: "",
+          costPrice: "",
+          sellingPrice: "",
+          minStockLevel: "",
         });
       }
+      setTimeout(() => setModalReady(true), 50);
     }
   }, [isOpen, initialData]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.product || !formData.shop) return toast.error("Product and Shop are required");
+    if (!initialData && (!formData.product || formData.shops.length === 0)) {
+      return toast.error(t("productAndShopRequired"));
+    }
     setLoading(true);
     try {
-      await dispatch(updateStock(formData)).unwrap();
-      toast.success(initialData ? "Stock updated" : "Stock added");
-      onClose();
+      const basePayload = {
+        quantity: Number(formData.quantity) || 0,
+        costPrice: Number(formData.costPrice) || 0,
+        sellingPrice: Number(formData.sellingPrice) || 0,
+        minStockLevel: Number(formData.minStockLevel) || 5,
+      };
+
+      if (initialData) {
+        await dispatch(updateStock({
+          ...basePayload,
+          product: formData.product,
+          shop: initialData.shop?._id,
+        })).unwrap();
+      } else if (formData.shops.length === 1) {
+        await dispatch(updateStock({
+          ...basePayload,
+          product: formData.product,
+          shop: formData.shops[0],
+        })).unwrap();
+      } else {
+        await dispatch(addStockToMultipleShops({
+          ...basePayload,
+          product: formData.product,
+          shops: formData.shops,
+        })).unwrap();
+      }
+
+      toast.success(initialData ? t("stockUpdated") : t("stockAdded"));
+      onClose(true);
     } catch (err) {
-      toast.error(typeof err === "string" ? err : "Operation failed");
+      toast.error(typeof err === "string" ? err : t("operationFailed"));
     } finally {
       setLoading(false);
     }
   };
 
-  const inputClass = "w-full bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 p-2 text-[11px] font-bold outline-none rounded-sm focus:border-[#E9B10C]";
+  const inputClass = "w-full bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 p-2 text-[11px] font-bold outline-none rounded-sm focus:border-[#E9B10C] transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
   const labelClass = "block text-[9px] uppercase font-bold mb-1.5 text-neutral-500";
 
   return (
-    <BaseModal isOpen={isOpen} onClose={onClose} title={initialData ? "Update Stock" : t("addShopStock")} maxWidth="max-w-md">
-      <form onSubmit={handleSubmit} className="space-y-4 p-2">
-        {!initialData && (
-          <div className="grid grid-cols-2 gap-4 pb-4 border-b border-neutral-200 dark:border-neutral-800">
-            <SearchableSelect
-              label={`${t("product")} *`}
-              value={formData.product}
-              onChange={(val) => setFormData({ ...formData, product: val })}
-              options={products}
-              placeholder="Search product..."
-              required
-              labelClass={labelClass}
-              inputClass={inputClass}
-            />
-            <SearchableSelect
-              label={`${t("shop")} *`}
-              value={formData.shop}
-              onChange={(val) => setFormData({ ...formData, shop: val })}
-              options={shops}
-              placeholder="Search shop..."
-              required
-              labelClass={labelClass}
-              inputClass={inputClass}
-            />
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>{t("totalQty")}</label>
-            <input
-              type="number"
-              required
-              min="0"
-              value={formData.quantity}
-              onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })}
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Min Stock Alert</label>
-            <input
-              type="number"
-              required
-              min="0"
-              value={formData.minStockLevel}
-              onChange={(e) => setFormData({ ...formData, minStockLevel: Number(e.target.value) })}
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Cost Price</label>
-            <input
-              type="number"
-              required
-              min="0"
-              value={formData.costPrice}
-              onChange={(e) => setFormData({ ...formData, costPrice: Number(e.target.value) })}
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>{t("price")}</label>
-            <input
-              type="number"
-              required
-              min="0"
-              value={formData.sellingPrice}
-              onChange={(e) => setFormData({ ...formData, sellingPrice: Number(e.target.value) })}
-              className={inputClass}
-            />
-          </div>
+    <BaseModal
+      isOpen={isOpen}
+      onClose={() => onClose(false)}
+      title={initialData ? t("updateStock") : t("addShopStock")}
+      maxWidth="max-w-lg"
+    >
+      {!modalReady ? (
+        <div className="flex flex-col items-center justify-center h-48 gap-4">
+          <Loader2 size={28} className="animate-spin text-[#E9B10C]" />
+          <span className="text-[10px] uppercase tracking-widest font-bold text-neutral-500">{t("loadingModal")}</span>
         </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4 p-2">
+          {!initialData && (
+            <div className="grid grid-cols-1 gap-4 pb-4 border-b border-neutral-200 dark:border-neutral-800">
+              <SearchableSelect
+                label={`${t("product")} *`}
+                value={formData.product}
+                onChange={(val) => setFormData({ ...formData, product: val })}
+                options={products}
+                placeholder={t("searchProduct")}
+                required
+                labelClass={labelClass}
+                inputClass={inputClass}
+                loading={inventoryProducts.loading}
+              />
+              <MultiSearchableSelect
+                label={`${t("shops")} *`}
+                values={formData.shops}
+                onChange={(vals) => setFormData({ ...formData, shops: vals })}
+                options={shops}
+                placeholder={t("searchShops")}
+                labelClass={labelClass}
+                inputClass={inputClass}
+                loading={inventoryShops.loading}
+              />
+            </div>
+          )}
 
-        <div className="flex justify-end pt-4 border-t border-neutral-200 dark:border-neutral-800">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-6 py-2 text-[10px] uppercase font-bold text-neutral-500 border border-neutral-300 dark:border-neutral-700 rounded-sm mr-2"
-          >
-            {t("cancel") || "Cancel"}
-          </button>
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-6 py-2 bg-[#E9B10C] text-[10px] uppercase font-bold text-black rounded-sm flex items-center gap-2 disabled:opacity-60"
-          >
-            {loading ? <Loader2 className="animate-spin" size={14} /> : t("save") || "Save"}
-          </button>
-        </div>
-      </form>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>{t("totalQty")}</label>
+              <input
+                type="number"
+                required
+                min="0"
+                inputMode="numeric"
+                value={formData.quantity}
+                onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>{t("minStockAlert")}</label>
+              <input
+                type="number"
+                required
+                min="0"
+                inputMode="numeric"
+                value={formData.minStockLevel}
+                onChange={(e) => setFormData({ ...formData, minStockLevel: e.target.value })}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>{t("costPrice")} (⃁)</label>
+              <input
+                type="number"
+                required
+                min="0"
+                inputMode="decimal"
+                value={formData.costPrice}
+                onChange={(e) => setFormData({ ...formData, costPrice: e.target.value })}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>{t("sellingPrice")} (⃁)</label>
+              <input
+                type="number"
+                required
+                min="0"
+                inputMode="decimal"
+                value={formData.sellingPrice}
+                onChange={(e) => setFormData({ ...formData, sellingPrice: e.target.value })}
+                className={inputClass}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-4 border-t border-neutral-200 dark:border-neutral-800">
+            <button
+              type="button"
+              onClick={() => onClose(false)}
+              className="px-6 py-2 text-[10px] uppercase font-bold text-neutral-500 border border-neutral-300 dark:border-neutral-700 rounded-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+            >
+              {t("cancel")}
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-6 py-2 bg-[#E9B10C] text-[10px] uppercase font-bold text-black rounded-sm flex items-center gap-2 hover:bg-[#d4a00a] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {loading ? <Loader2 className="animate-spin" size={14} /> : t("save")}
+            </button>
+          </div>
+        </form>
+      )}
     </BaseModal>
   );
 };

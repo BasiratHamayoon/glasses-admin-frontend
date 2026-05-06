@@ -17,41 +17,46 @@ const cleanParams = (params) => {
   return cleaned;
 };
 
-// ─── FETCH ALL PURCHASES (Admin) ───────────────────────────
 export const fetchAllPurchases = createAsyncThunk(
   'purchases/fetchAll',
   async (params, { rejectWithValue }) => {
     try {
       const response = await api.get('/admin/purchases/all', {
-        params: { ...cleanParams(params), _t: Date.now() },
+        params: cleanParams(params),
       });
       return response.data.data;
     } catch (err) {
-      return rejectWithValue(
-        err?.response?.data?.message || 'Failed to fetch purchases'
-      );
+      return rejectWithValue(err?.response?.data?.message || 'Failed to fetch purchases');
     }
+  },
+  {
+    condition: (_, { getState }) => {
+      if (getState().purchases.purchases.loading) return false;
+      return true;
+    },
   }
 );
 
-// ─── FETCH PENDING EDIT REQUESTS ───────────────────────────
 export const fetchPendingEditRequests = createAsyncThunk(
   'purchases/fetchPendingRequests',
   async (params, { rejectWithValue }) => {
     try {
       const response = await api.get('/admin/purchases/pending-requests', {
-        params: { ...cleanParams(params), _t: Date.now() },
+        params: cleanParams(params),
       });
       return response.data.data;
     } catch (err) {
-      return rejectWithValue(
-        err?.response?.data?.message || 'Failed to fetch pending requests'
-      );
+      return rejectWithValue(err?.response?.data?.message || 'Failed to fetch pending requests');
     }
+  },
+  {
+    condition: (_, { getState }) => {
+      if (getState().purchases.pendingRequests.loading) return false;
+      return true;
+    },
   }
 );
 
-// ─── APPROVE EDIT REQUEST ───────────────────────────────────
 export const approveEditRequest = createAsyncThunk(
   'purchases/approveEdit',
   async (id, { rejectWithValue }) => {
@@ -59,26 +64,19 @@ export const approveEditRequest = createAsyncThunk(
       const response = await api.patch(`/admin/purchases/${id}/approve-edit`);
       return response.data.data;
     } catch (err) {
-      return rejectWithValue(
-        err?.response?.data?.message || 'Failed to approve edit request'
-      );
+      return rejectWithValue(err?.response?.data?.message || 'Failed to approve edit request');
     }
   }
 );
 
-// ─── REJECT EDIT REQUEST ────────────────────────────────────
 export const rejectEditRequest = createAsyncThunk(
   'purchases/rejectEdit',
   async ({ id, rejectionReason }, { rejectWithValue }) => {
     try {
-      const response = await api.patch(`/admin/purchases/${id}/reject-edit`, {
-        rejectionReason,
-      });
+      const response = await api.patch(`/admin/purchases/${id}/reject-edit`, { rejectionReason });
       return response.data.data;
     } catch (err) {
-      return rejectWithValue(
-        err?.response?.data?.message || 'Failed to reject edit request'
-      );
+      return rejectWithValue(err?.response?.data?.message || 'Failed to reject edit request');
     }
   }
 );

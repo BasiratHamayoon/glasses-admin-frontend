@@ -10,10 +10,9 @@ import {
   fetchCashFlowReports, fetchProfitLossReports,
   approveExpense, payExpense, rejectExpense,
   reconcileTransaction, reverseTransaction,
-  fetchCategoryWiseExpense, fetchMonthlyComparison, fetchShopWiseReport
+  fetchCategoryWiseExpense, fetchMonthlyComparison, fetchShopWiseReport,
 } from "@/redux/actions/financeActions";
-
-import { fetchShops } from "@/redux/actions/shopActions";
+import { invalidateSummary } from "@/redux/slices/financeSlice";
 
 import { FinanceFilter } from "@/components/filters/FinanceFilter";
 import { TransactionTable } from "@/components/tables/TransactionTable";
@@ -21,9 +20,7 @@ import { ExpenseTable } from "@/components/tables/ExpenseTable";
 import { BasePagination } from "@/components/pagination/BasePagination";
 import { PageSkeleton } from "@/components/loaders-and-skeletons/PageSkeleton";
 import { FinanceStats } from "@/components/cards/statCards/FinanceStats";
-
 import { DailyTrendChart, MonthlyComparisonChart } from "@/components/charts/FinanceCharts";
-
 import { ExpenseModal } from "@/components/modals/addUpdate/ExpenseModal";
 import { TransactionModal } from "@/components/modals/addUpdate/TransactionModal";
 import { TransactionViewModal } from "@/components/modals/view/TransactionViewModal";
@@ -34,8 +31,12 @@ import { BaseModal } from "@/components/modals/BaseModal";
 
 const ITEMS_PER_PAGE = 15;
 
-const initialTxnFilters = { search: "", type: [], paymentMethod: [], isReconciled: [], startDate: "", endDate: "" };
-const initialExpFilters = { search: "", status: [], category: [], paymentMethod: [], startDate: "", endDate: "" };
+const initialTxnFilters = {
+  search: "", type: [], paymentMethod: [], isReconciled: [], startDate: "", endDate: "",
+};
+const initialExpFilters = {
+  search: "", status: [], category: [], paymentMethod: [], startDate: "", endDate: "",
+};
 
 function buildTxnParams(filters, page) {
   const params = { page, limit: ITEMS_PER_PAGE };
@@ -80,23 +81,14 @@ export default function FinancePage() {
   const [rejectModal, setRejectModal] = useState({ isOpen: false, exp: null, reason: "", loading: false });
 
   const debounceTimer = useRef(null);
-  const initFetched = useRef(false);
-  const isMounted = useRef(false);
+  const initialFetchDone = useRef(false);
+  const skipNextPageEffect = useRef(true);
+  const activeTabRef = useRef("transactions");
+  const txnFiltersRef = useRef(initialTxnFilters);
+  const expFiltersRef = useRef(initialExpFilters);
+  const pageRef = useRef(1);
 
-  const stateRef = useRef({ activeTab, txnFilters, expFilters, currentPage });
-  useEffect(() => {
-    stateRef.current = { activeTab, txnFilters, expFilters, currentPage };
-  });
-
-  const { transactions, expenses, reports } = useSelector(state => state.finance);
-
-  useEffect(() => {
-    if (!initFetched.current) {
-      dispatch(fetchShops({ limit: 100 }));
-      dispatch(fetchFinancialSummary());
-      initFetched.current = true;
-    }
-  }, [dispatch]);
+  const { transactions, expenses, reports } = useSelector((state) => state.finance);
 
   const runFetch = useCallback((tab, page, txnF, expF) => {
     if (tab === "transactions") {
@@ -113,12 +105,10 @@ export default function FinancePage() {
     }
   }, [dispatch]);
 
-  const scheduleFetch = useCallback((tab, page, txnF, expF, delay = 300) => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => {
-      runFetch(tab, page, txnF, expF);
-    }, delay);
-  }, [runFetch]);
+  useEffect(() => { txnFiltersRef.current = txnFilters; }, [txnFilters]);
+  useEffect(() => { expFiltersRef.current = expFilters; }, [expFilters]);
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+  useEffect(() => { pageRef.current = currentPage; }, [currentPage]);
 
   useEffect(() => {
     return () => {
@@ -127,58 +117,79 @@ export default function FinancePage() {
   }, []);
 
   useEffect(() => {
-    if (!isMounted.current) {
-      isMounted.current = true;
-      runFetch("transactions", 1, initialTxnFilters, initialExpFilters);
-      return;
-    }
+    if (initialFetchDone.current) return;
+    initialFetchDone.current = true;
+    skipNextPageEffect.current = true;
+    dispatch(fetchFinancialSummary());
+    runFetch("transactions", 1, initialTxnFilters, initialExpFilters);
   }, []);
 
   useEffect(() => {
-    if (!isMounted.current) return;
-    scheduleFetch(activeTab, currentPage, stateRef.current.txnFilters, stateRef.current.expFilters, 0);
-  }, [activeTab, currentPage]);
+    if (!reports.summaryInitialized && !reports.summaryLoading && initialFetchDone.current) {
+      dispatch(fetchFinancialSummary());
+    }
+  }, [reports.summaryInitialized]);
 
   useEffect(() => {
-    if (!isMounted.current) return;
-    if (stateRef.current.activeTab !== "transactions") return;
-    scheduleFetch("transactions", 1, txnFilters, stateRef.current.expFilters, 300);
+    if (skipNextPageEffect.current) {
+      skipNextPageEffect.current = false;
+      return;
+    }
+    runFetch(activeTabRef.current, currentPage, txnFiltersRef.current, expFiltersRef.current);
+  }, [currentPage]);
+
+  useEffect(() => {
+    if (!initialFetchDone.current) return;
+    skipNextPageEffect.current = true;
     setCurrentPage(1);
+    pageRef.current = 1;
+    runFetch(activeTab, 1, txnFiltersRef.current, expFiltersRef.current);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!initialFetchDone.current) return;
+    if (activeTabRef.current !== "transactions") return;
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      skipNextPageEffect.current = true;
+      setCurrentPage(1);
+      pageRef.current = 1;
+      dispatch(fetchTransactions(buildTxnParams(txnFilters, 1)));
+    }, 300);
   }, [
-    txnFilters.search,
-    txnFilters.type,
-    txnFilters.paymentMethod,
-    txnFilters.isReconciled,
-    txnFilters.startDate,
-    txnFilters.endDate,
+    txnFilters.search, txnFilters.type, txnFilters.paymentMethod,
+    txnFilters.isReconciled, txnFilters.startDate, txnFilters.endDate,
   ]);
 
   useEffect(() => {
-    if (!isMounted.current) return;
-    if (stateRef.current.activeTab !== "expenses") return;
-    scheduleFetch("expenses", 1, stateRef.current.txnFilters, expFilters, 300);
-    setCurrentPage(1);
+    if (!initialFetchDone.current) return;
+    if (activeTabRef.current !== "expenses") return;
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      skipNextPageEffect.current = true;
+      setCurrentPage(1);
+      pageRef.current = 1;
+      dispatch(fetchExpenses(buildExpParams(expFilters, 1)));
+    }, 300);
   }, [
-    expFilters.search,
-    expFilters.status,
-    expFilters.category,
-    expFilters.paymentMethod,
-    expFilters.startDate,
-    expFilters.endDate,
+    expFilters.search, expFilters.status, expFilters.category,
+    expFilters.paymentMethod, expFilters.startDate, expFilters.endDate,
   ]);
 
-  const refreshCurrent = useCallback(() => {
-    const { activeTab: tab, currentPage: page, txnFilters: txnF, expFilters: expF } = stateRef.current;
-    runFetch(tab, page, txnF, expF);
+  const refreshCurrentTab = useCallback(() => {
+    runFetch(
+      activeTabRef.current,
+      pageRef.current,
+      txnFiltersRef.current,
+      expFiltersRef.current
+    );
   }, [runFetch]);
 
   const handleTabChange = (tabId) => {
-    if (tabId === stateRef.current.activeTab) return;
+    if (tabId === activeTabRef.current) return;
     setActiveTab(tabId);
     setCurrentPage(1);
   };
-
-  const handlePageChange = (page) => setCurrentPage(page);
 
   const handleClearTxnFilters = () => {
     setTxnFilters(initialTxnFilters);
@@ -190,117 +201,135 @@ export default function FinancePage() {
     setCurrentPage(1);
   };
 
-  const handleRequestReconcile = (txn) => setReconcileModal({ isOpen: true, txn, loading: false });
+  const handleExpenseModalClose = (didSave) => {
+    setAddExpenseOpen(false);
+    if (didSave) refreshCurrentTab();
+  };
+
+  const handleTransactionModalClose = (didSave) => {
+    setAddTransactionOpen(false);
+    if (didSave) refreshCurrentTab();
+  };
 
   const confirmReconcile = async () => {
-    setReconcileModal(prev => ({ ...prev, loading: true }));
+    setReconcileModal((prev) => ({ ...prev, loading: true }));
     try {
-      await dispatch(reconcileTransaction({ id: reconcileModal.txn._id, data: { notes: "Admin Reconciled" } })).unwrap();
-      toast.success("Reconciled Successfully");
+      await dispatch(
+        reconcileTransaction({ id: reconcileModal.txn._id, data: { notes: "Admin Reconciled" } })
+      ).unwrap();
+      toast.success(t("reconciledSuccess"));
       setReconcileModal({ isOpen: false, txn: null, loading: false });
-      refreshCurrent();
     } catch {
-      toast.error("Failed to reconcile");
-      setReconcileModal(prev => ({ ...prev, loading: false }));
+      toast.error(t("reconcileFailed"));
+      setReconcileModal((prev) => ({ ...prev, loading: false }));
     }
   };
-
-  const handleRequestReverse = (txn) => setReverseModal({ isOpen: true, txn, reason: "", loading: false });
 
   const confirmReverse = async () => {
-    setReverseModal(prev => ({ ...prev, loading: true }));
+    setReverseModal((prev) => ({ ...prev, loading: true }));
     try {
-      await dispatch(reverseTransaction({ id: reverseModal.txn._id, data: { reason: reverseModal.reason } })).unwrap();
-      toast.success("Reversed Successfully");
+      await dispatch(
+        reverseTransaction({ id: reverseModal.txn._id, data: { reason: reverseModal.reason } })
+      ).unwrap();
+      toast.success(t("reversedSuccess"));
       setReverseModal({ isOpen: false, txn: null, reason: "", loading: false });
-      refreshCurrent();
     } catch {
-      toast.error("Failed to reverse");
-      setReverseModal(prev => ({ ...prev, loading: false }));
+      toast.error(t("reverseFailed"));
+      setReverseModal((prev) => ({ ...prev, loading: false }));
     }
   };
-
-  const handleRequestApprove = (exp) => setApproveModal({ isOpen: true, exp, loading: false });
 
   const confirmApprove = async () => {
-    setApproveModal(prev => ({ ...prev, loading: true }));
+    setApproveModal((prev) => ({ ...prev, loading: true }));
     try {
       await dispatch(approveExpense(approveModal.exp._id)).unwrap();
-      toast.success("Expense Approved");
+      toast.success(t("expenseApproved"));
       setApproveModal({ isOpen: false, exp: null, loading: false });
-      refreshCurrent();
     } catch {
-      toast.error("Failed to approve");
-      setApproveModal(prev => ({ ...prev, loading: false }));
+      toast.error(t("approveFailed"));
+      setApproveModal((prev) => ({ ...prev, loading: false }));
     }
   };
 
-  const handleRequestReject = (exp) => setRejectModal({ isOpen: true, exp, reason: "", loading: false });
-
   const confirmReject = async () => {
-    setRejectModal(prev => ({ ...prev, loading: true }));
+    setRejectModal((prev) => ({ ...prev, loading: true }));
     try {
-      await dispatch(rejectExpense({ id: rejectModal.exp._id, data: { reason: rejectModal.reason } })).unwrap();
-      toast.success("Expense Rejected");
+      await dispatch(
+        rejectExpense({ id: rejectModal.exp._id, data: { reason: rejectModal.reason } })
+      ).unwrap();
+      toast.success(t("expenseRejected"));
       setRejectModal({ isOpen: false, exp: null, reason: "", loading: false });
-      refreshCurrent();
     } catch {
-      toast.error("Failed to reject");
-      setRejectModal(prev => ({ ...prev, loading: false }));
+      toast.error(t("rejectFailed"));
+      setRejectModal((prev) => ({ ...prev, loading: false }));
     }
   };
 
   const handlePayExpense = async (exp) => {
     try {
-      await dispatch(payExpense({ id: exp._id, data: { amount: exp.dueAmount, paymentMethod: "BANK_TRANSFER" } })).unwrap();
-      toast.success("Expense Paid");
-      refreshCurrent();
+      await dispatch(
+        payExpense({ id: exp._id, data: { amount: exp.dueAmount, paymentMethod: "BANK_TRANSFER" } })
+      ).unwrap();
+      toast.success(t("expensePaid"));
     } catch {
-      toast.error("Payment Failed");
+      toast.error(t("paymentFailed"));
     }
   };
 
-  if (!isMounted.current && transactions.loading && !transactions.items.length) return <PageSkeleton />;
+  if (!initialFetchDone.current && transactions.loading && !transactions.items.length) {
+    return <PageSkeleton />;
+  }
 
   return (
     <div className="space-y-6" dir={isArabic ? "rtl" : "ltr"}>
       <FinanceStats summary={reports.summary?.summary} />
 
-      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 w-full">
-        <div className="flex bg-white dark:bg-[#111111] p-1 border border-neutral-200 dark:border-neutral-800 rounded-sm overflow-x-auto scrollbar-hide shadow-sm w-full xl:w-auto">
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 w-full border-b border-neutral-200 dark:border-neutral-800 pb-4">
+        <div className="flex bg-white dark:bg-[#111111] p-1 border border-neutral-200 dark:border-neutral-800 rounded-sm overflow-x-auto scrollbar-hide w-full xl:w-auto">
           {[
-            { id: "transactions", label: t("transactions") || "Transactions" },
-            { id: "expenses", label: t("expenses") || "Expenses" },
-            { id: "charts", label: t("chartsAnalytics") || "Charts & Analytics" },
-            { id: "reports", label: t("financialReports") || "Financial Reports" }
-          ].map(tab => (
+            { id: "transactions", labelKey: "transactions" },
+            { id: "expenses", labelKey: "expenses" },
+            { id: "charts", labelKey: "chartsAnalytics" },
+            { id: "reports", labelKey: "financialReports" },
+          ].map((tab) => (
             <button
               key={tab.id}
+              type="button"
               onClick={() => handleTabChange(tab.id)}
-              className={`flex-none px-6 py-2.5 text-[10px] uppercase tracking-widest font-black transition-all rounded-sm whitespace-nowrap ${activeTab === tab.id ? "bg-[#E9B10C] text-black shadow-sm" : "text-neutral-500 hover:text-black dark:hover:text-white"}`}
+              className={`flex-none px-6 py-2.5 text-[10px] uppercase tracking-widest font-black transition-all rounded-sm whitespace-nowrap ${
+                activeTab === tab.id
+                  ? "bg-[#E9B10C] text-black shadow-sm"
+                  : "text-neutral-500 hover:text-black dark:hover:text-white"
+              }`}
             >
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           ))}
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto scrollbar-hide">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           {activeTab === "transactions" && (
             <button
+              type="button"
               onClick={() => setAddTransactionOpen(true)}
-              className="flex items-center gap-2 px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black hover:bg-[#E9B10C] hover:text-black transition-colors rounded-sm shrink-0"
+              className="flex items-center gap-2 px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black hover:bg-[#E9B10C] hover:text-black transition-colors rounded-sm shrink-0 w-full sm:w-auto"
             >
               <Plus size={14} strokeWidth={3} />
-              <span className="text-[10px] uppercase font-black tracking-widest">Log Transaction</span>
+              <span className="text-[10px] uppercase font-black tracking-widest">
+                {t("logTransaction")}
+              </span>
             </button>
           )}
           {activeTab === "expenses" && (
             <button
+              type="button"
               onClick={() => setAddExpenseOpen(true)}
-              className="flex items-center gap-2 px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black hover:bg-[#E9B10C] hover:text-black transition-colors rounded-sm shrink-0"
+              className="flex items-center gap-2 px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black hover:bg-[#E9B10C] hover:text-black transition-colors rounded-sm shrink-0 w-full sm:w-auto"
             >
               <Plus size={14} strokeWidth={3} />
-              <span className="text-[10px] uppercase font-black tracking-widest">Log Expense</span>
+              <span className="text-[10px] uppercase font-black tracking-widest">
+                {t("logExpense")}
+              </span>
             </button>
           )}
         </div>
@@ -313,20 +342,21 @@ export default function FinancePage() {
               type="transaction"
               filters={txnFilters}
               setFilters={setTxnFilters}
-              onApply={() => {}}
               onClear={handleClearTxnFilters}
             />
             <TransactionTable
               data={transactions.items}
               loading={transactions.loading}
               onView={(item) => setViewTxn({ isOpen: true, data: item })}
-              onReconcile={handleRequestReconcile}
-              onReverse={handleRequestReverse}
+              onReconcile={(txn) => setReconcileModal({ isOpen: true, txn, loading: false })}
+              onReverse={(txn) =>
+                setReverseModal({ isOpen: true, txn, reason: "", loading: false })
+              }
             />
             <BasePagination
               currentPage={currentPage}
               totalPages={transactions.pagination?.totalPages || 1}
-              onPageChange={handlePageChange}
+              onPageChange={setCurrentPage}
             />
           </>
         )}
@@ -337,120 +367,218 @@ export default function FinancePage() {
               type="expense"
               filters={expFilters}
               setFilters={setExpFilters}
-              onApply={() => {}}
               onClear={handleClearExpFilters}
             />
             <ExpenseTable
               data={expenses.items}
               loading={expenses.loading}
               onView={(item) => setViewExpense({ isOpen: true, data: item })}
-              onApprove={handleRequestApprove}
-              onReject={handleRequestReject}
+              onApprove={(exp) => setApproveModal({ isOpen: true, exp, loading: false })}
+              onReject={(exp) =>
+                setRejectModal({ isOpen: true, exp, reason: "", loading: false })
+              }
               onPay={handlePayExpense}
             />
             <BasePagination
               currentPage={currentPage}
               totalPages={expenses.pagination?.totalPages || 1}
-              onPageChange={handlePageChange}
+              onPageChange={setCurrentPage}
             />
           </>
         )}
 
         {activeTab === "charts" && (
-          <div className="space-y-6 animate-in fade-in duration-300">
+          <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <MonthlyComparisonChart data={reports.monthlyComparison} loading={reports.loading} />
-              <DailyTrendChart data={reports.summary?.dailyTrend} loading={reports.loading} />
+              <MonthlyComparisonChart
+                data={reports.monthlyComparison}
+                loading={reports.monthlyLoading}
+              />
+              <DailyTrendChart
+                data={reports.summary?.dailyTrend}
+                loading={reports.summaryLoading}
+              />
             </div>
           </div>
         )}
 
         {activeTab === "reports" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-300">
-            <div className="p-6 bg-neutral-50 dark:bg-[#0a0a0a] border border-neutral-200 dark:border-neutral-800 rounded-sm shadow-sm flex flex-col">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="p-6 bg-neutral-50 dark:bg-[#0a0a0a] border border-neutral-200 dark:border-neutral-800 rounded-sm flex flex-col">
               <div className="flex justify-between items-center mb-4 border-b border-neutral-200 dark:border-neutral-800 pb-4">
-                <h3 className="text-[11px] font-black uppercase tracking-widest text-[#E9B10C]">Cash Flow Reports</h3>
-                <button onClick={() => setReportModal({ isOpen: true, type: "CASH_FLOW" })} className="px-3 py-1 bg-black dark:bg-white text-white dark:text-black text-[9px] uppercase font-bold rounded-sm hover:bg-[#E9B10C] transition-colors">
-                  + Generate New
+                <h3 className="text-[11px] font-black uppercase tracking-widest text-[#E9B10C]">
+                  {t("cashFlowReports")}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setReportModal({ isOpen: true, type: "CASH_FLOW" })}
+                  className="px-3 py-1 bg-black dark:bg-white text-white dark:text-black text-[9px] uppercase font-bold rounded-sm hover:bg-[#E9B10C] transition-colors"
+                >
+                  + {t("generateNew")}
                 </button>
               </div>
               <div className="space-y-2 flex-1 overflow-y-auto max-h-64 scrollbar-hide">
-                {reports.cashFlow?.length === 0 ? (
-                  <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest text-center py-6">No reports generated.</p>
-                ) : reports.cashFlow?.map(r => (
-                  <div key={r._id} className="py-3 border-b border-neutral-200 dark:border-neutral-800 flex justify-between items-center hover:bg-white dark:hover:bg-[#111111] px-2 rounded-sm cursor-pointer transition-colors">
-                    <div>
-                      <span className="block text-[10px] font-bold uppercase">{r.reportNumber}</span>
-                      <span className="text-[8px] font-bold text-neutral-500 block">{new Date(r.startDate).toLocaleDateString()} - {new Date(r.endDate).toLocaleDateString()}</span>
-                    </div>
-                    <span className={`text-[10px] font-black ${r.netCashFlow >= 0 ? "text-green-500" : "text-red-500"}`}>SAR {r.netCashFlow?.toLocaleString()}</span>
+                {reports.cashFlowLoading ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 size={20} className="animate-spin text-[#E9B10C]" />
                   </div>
-                ))}
+                ) : !reports.cashFlow?.length ? (
+                  <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest text-center py-6">
+                    {t("noReportsGenerated")}
+                  </p>
+                ) : (
+                  reports.cashFlow.map((r) => (
+                    <div
+                      key={r._id}
+                      className="py-3 border-b border-neutral-200 dark:border-neutral-800 flex justify-between items-center hover:bg-white dark:hover:bg-[#111111] px-2 rounded-sm cursor-pointer transition-colors"
+                    >
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase">
+                          {r.reportNumber}
+                        </span>
+                        <span className="text-[8px] font-bold text-neutral-500 block">
+                          {new Date(r.startDate).toLocaleDateString()} -{" "}
+                          {new Date(r.endDate).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <span
+                        className={`text-[10px] font-black flex items-center gap-1 ${
+                          r.netCashFlow >= 0 ? "text-green-500" : "text-red-500"
+                        }`}
+                      >
+                        ⃁ {r.netCashFlow?.toLocaleString()}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
-            <div className="p-6 bg-neutral-50 dark:bg-[#0a0a0a] border border-neutral-200 dark:border-neutral-800 rounded-sm shadow-sm flex flex-col">
+            <div className="p-6 bg-neutral-50 dark:bg-[#0a0a0a] border border-neutral-200 dark:border-neutral-800 rounded-sm flex flex-col">
               <div className="flex justify-between items-center mb-4 border-b border-neutral-200 dark:border-neutral-800 pb-4">
-                <h3 className="text-[11px] font-black uppercase tracking-widest text-[#E9B10C]">Profit & Loss Statements</h3>
-                <button onClick={() => setReportModal({ isOpen: true, type: "PROFIT_LOSS" })} className="px-3 py-1 bg-black dark:bg-white text-white dark:text-black text-[9px] uppercase font-bold rounded-sm hover:bg-[#E9B10C] transition-colors">
-                  + Generate New
+                <h3 className="text-[11px] font-black uppercase tracking-widest text-[#E9B10C]">
+                  {t("profitLossStatements")}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setReportModal({ isOpen: true, type: "PROFIT_LOSS" })}
+                  className="px-3 py-1 bg-black dark:bg-white text-white dark:text-black text-[9px] uppercase font-bold rounded-sm hover:bg-[#E9B10C] transition-colors"
+                >
+                  + {t("generateNew")}
                 </button>
               </div>
               <div className="space-y-2 flex-1 overflow-y-auto max-h-64 scrollbar-hide">
-                {reports.profitLoss?.length === 0 ? (
-                  <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest text-center py-6">No statements generated.</p>
-                ) : reports.profitLoss?.map(r => (
-                  <div key={r._id} className="py-3 border-b border-neutral-200 dark:border-neutral-800 flex justify-between items-center hover:bg-white dark:hover:bg-[#111111] px-2 rounded-sm cursor-pointer transition-colors">
-                    <div>
-                      <span className="block text-[10px] font-bold uppercase">{r.reportNumber}</span>
-                      <span className="text-[8px] font-bold text-neutral-500 block">{new Date(r.startDate).toLocaleDateString()} - {new Date(r.endDate).toLocaleDateString()}</span>
-                    </div>
-                    <span className={`text-[10px] font-black ${r.netProfitAfterTax >= 0 ? "text-green-500" : "text-red-500"}`}>SAR {r.netProfitAfterTax?.toLocaleString()}</span>
+                {reports.profitLossLoading ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 size={20} className="animate-spin text-[#E9B10C]" />
                   </div>
-                ))}
+                ) : !reports.profitLoss?.length ? (
+                  <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest text-center py-6">
+                    {t("noStatementsGenerated")}
+                  </p>
+                ) : (
+                  reports.profitLoss.map((r) => (
+                    <div
+                      key={r._id}
+                      className="py-3 border-b border-neutral-200 dark:border-neutral-800 flex justify-between items-center hover:bg-white dark:hover:bg-[#111111] px-2 rounded-sm cursor-pointer transition-colors"
+                    >
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase">
+                          {r.reportNumber}
+                        </span>
+                        <span className="text-[8px] font-bold text-neutral-500 block">
+                          {new Date(r.startDate).toLocaleDateString()} -{" "}
+                          {new Date(r.endDate).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <span
+                        className={`text-[10px] font-black flex items-center gap-1 ${
+                          r.netProfitAfterTax >= 0 ? "text-green-500" : "text-red-500"
+                        }`}
+                      >
+                        ⃁ {r.netProfitAfterTax?.toLocaleString()}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
         )}
       </div>
 
-      <ExpenseModal isOpen={isAddExpenseOpen} onClose={() => { setAddExpenseOpen(false); refreshCurrent(); }} />
-      <TransactionModal isOpen={isAddTransactionOpen} onClose={() => { setAddTransactionOpen(false); refreshCurrent(); }} />
-      <TransactionViewModal isOpen={viewTxn.isOpen} onClose={() => setViewTxn({ isOpen: false, data: null })} data={viewTxn.data} />
-      <ExpenseViewModal isOpen={viewExpense.isOpen} onClose={() => setViewExpense({ isOpen: false, data: null })} data={viewExpense.data} />
-      <GenerateReportModal isOpen={reportModal.isOpen} onClose={() => setReportModal({ isOpen: false, type: "CASH_FLOW" })} reportType={reportModal.type} onSuccess={refreshCurrent} />
+      <ExpenseModal isOpen={isAddExpenseOpen} onClose={handleExpenseModalClose} />
+      <TransactionModal isOpen={isAddTransactionOpen} onClose={handleTransactionModalClose} />
+      <TransactionViewModal
+        isOpen={viewTxn.isOpen}
+        onClose={() => setViewTxn({ isOpen: false, data: null })}
+        data={viewTxn.data}
+      />
+      <ExpenseViewModal
+        isOpen={viewExpense.isOpen}
+        onClose={() => setViewExpense({ isOpen: false, data: null })}
+        data={viewExpense.data}
+      />
+      <GenerateReportModal
+        isOpen={reportModal.isOpen}
+        onClose={() => setReportModal({ isOpen: false, type: "CASH_FLOW" })}
+        reportType={reportModal.type}
+        onSuccess={() => {
+          dispatch(fetchCashFlowReports());
+          dispatch(fetchProfitLossReports());
+        }}
+      />
 
       <ConfirmationModal
         isOpen={reconcileModal.isOpen}
         onClose={() => setReconcileModal({ ...reconcileModal, isOpen: false })}
         onConfirm={confirmReconcile}
         loading={reconcileModal.loading}
-        title={t("confirmReconcileTitle") || "Reconcile Transaction"}
-        message={t("confirmReconcileMessage") || "Are you sure you want to reconcile this transaction?"}
-        confirmText={t("reconcile") || "Reconcile"}
-        confirmClass="bg-blue-500 hover:bg-blue-600 text-white"
-        iconColor="text-blue-500"
+        message={t("confirmReconcileMessage")}
       />
 
-      <BaseModal isOpen={reverseModal.isOpen} onClose={() => setReverseModal({ ...reverseModal, isOpen: false })} title={t("reverseTransactionTitle") || "Reverse Transaction"}>
-        <div className="flex flex-col items-center justify-center p-4 text-center" dir={isArabic ? "rtl" : "ltr"}>
+      <BaseModal
+        isOpen={reverseModal.isOpen}
+        onClose={() => setReverseModal({ ...reverseModal, isOpen: false })}
+        title={t("reverseTransactionTitle")}
+      >
+        <div
+          className="flex flex-col items-center p-4 text-center"
+          dir={isArabic ? "rtl" : "ltr"}
+        >
           <Undo2 size={48} className="text-red-500 mb-4 opacity-80" />
-          <p className="text-[12px] text-black dark:text-white font-medium mb-2">
-            {t("confirmReverseMessage") || "Are you sure you want to reverse this transaction? This action cannot be undone."}
+          <p className="text-[12px] text-black dark:text-white font-medium mb-4">
+            {t("confirmReverseMessage")}
           </p>
           <input
             type="text"
             value={reverseModal.reason}
-            onChange={(e) => setReverseModal({ ...reverseModal, reason: e.target.value })}
-            placeholder={t("reversalReasonPlaceholder") || "Enter reason for reversal..."}
-            className="w-full mt-4 mb-6 bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 rounded-sm px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-[#E9B10C] focus:border-[#E9B10C] transition-all"
+            onChange={(e) =>
+              setReverseModal({ ...reverseModal, reason: e.target.value })
+            }
+            placeholder={t("reversalReasonPlaceholder")}
+            className="w-full mb-6 bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 rounded-sm px-4 py-3 text-[11px] focus:outline-none focus:border-[#E9B10C] transition-colors"
           />
           <div className="flex gap-3 w-full justify-center">
-            <button onClick={() => setReverseModal({ ...reverseModal, isOpen: false })} disabled={reverseModal.loading} className="px-6 py-2 text-[10px] uppercase tracking-widest font-bold border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors rounded-sm">
-              {t("cancel") || "Cancel"}
+            <button
+              type="button"
+              onClick={() => setReverseModal({ ...reverseModal, isOpen: false })}
+              disabled={reverseModal.loading}
+              className="px-6 py-2 text-[10px] uppercase tracking-widest font-bold border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors rounded-sm"
+            >
+              {t("cancel")}
             </button>
-            <button onClick={confirmReverse} disabled={reverseModal.loading || !reverseModal.reason.trim()} className="px-6 py-2 text-[10px] uppercase tracking-widest font-bold transition-colors flex items-center justify-center gap-2 rounded-sm min-w-[120px] bg-red-500 hover:bg-red-600 text-white disabled:opacity-50 disabled:cursor-not-allowed">
-              {reverseModal.loading ? <Loader2 size={14} className="animate-spin" /> : (t("reverse") || "Reverse")}
+            <button
+              type="button"
+              onClick={confirmReverse}
+              disabled={reverseModal.loading || !reverseModal.reason.trim()}
+              className="px-6 py-2 text-[10px] uppercase tracking-widest font-bold bg-red-500 hover:bg-red-600 text-white rounded-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {reverseModal.loading ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                t("reverse")
+              )}
             </button>
           </div>
         </div>
@@ -461,32 +589,51 @@ export default function FinancePage() {
         onClose={() => setApproveModal({ ...approveModal, isOpen: false })}
         onConfirm={confirmApprove}
         loading={approveModal.loading}
-        title={t("confirmApproveTitle") || "Approve Expense"}
-        message={t("confirmApproveMessage") || "Are you sure you want to approve this expense?"}
-        confirmText={t("approve") || "Approve"}
-        confirmClass="bg-green-500 hover:bg-green-600 text-white"
-        iconColor="text-green-500"
+        message={t("confirmApproveMessage")}
       />
 
-      <BaseModal isOpen={rejectModal.isOpen} onClose={() => setRejectModal({ ...rejectModal, isOpen: false })} title={t("rejectExpenseTitle") || "Reject Expense"}>
-        <div className="flex flex-col items-center justify-center p-4 text-center" dir={isArabic ? "rtl" : "ltr"}>
+      <BaseModal
+        isOpen={rejectModal.isOpen}
+        onClose={() => setRejectModal({ ...rejectModal, isOpen: false })}
+        title={t("rejectExpenseTitle")}
+      >
+        <div
+          className="flex flex-col items-center p-4 text-center"
+          dir={isArabic ? "rtl" : "ltr"}
+        >
           <XCircle size={48} className="text-red-500 mb-4 opacity-80" />
-          <p className="text-[12px] text-black dark:text-white font-medium mb-2">
-            {t("confirmRejectMessage") || "Are you sure you want to reject this expense?"}
+          <p className="text-[12px] text-black dark:text-white font-medium mb-4">
+            {t("confirmRejectMessage")}
           </p>
           <input
             type="text"
             value={rejectModal.reason}
-            onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
-            placeholder={t("rejectionReasonPlaceholder") || "Enter reason for rejection..."}
-            className="w-full mt-4 mb-6 bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 rounded-sm px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-[#E9B10C] focus:border-[#E9B10C] transition-all"
+            onChange={(e) =>
+              setRejectModal({ ...rejectModal, reason: e.target.value })
+            }
+            placeholder={t("rejectionReasonPlaceholder")}
+            className="w-full mb-6 bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 rounded-sm px-4 py-3 text-[11px] focus:outline-none focus:border-[#E9B10C] transition-colors"
           />
           <div className="flex gap-3 w-full justify-center">
-            <button onClick={() => setRejectModal({ ...rejectModal, isOpen: false })} disabled={rejectModal.loading} className="px-6 py-2 text-[10px] uppercase tracking-widest font-bold border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors rounded-sm">
-              {t("cancel") || "Cancel"}
+            <button
+              type="button"
+              onClick={() => setRejectModal({ ...rejectModal, isOpen: false })}
+              disabled={rejectModal.loading}
+              className="px-6 py-2 text-[10px] uppercase tracking-widest font-bold border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors rounded-sm"
+            >
+              {t("cancel")}
             </button>
-            <button onClick={confirmReject} disabled={rejectModal.loading || !rejectModal.reason.trim()} className="px-6 py-2 text-[10px] uppercase tracking-widest font-bold transition-colors flex items-center justify-center gap-2 rounded-sm min-w-[120px] bg-red-500 hover:bg-red-600 text-white disabled:opacity-50 disabled:cursor-not-allowed">
-              {rejectModal.loading ? <Loader2 size={14} className="animate-spin" /> : (t("reject") || "Reject")}
+            <button
+              type="button"
+              onClick={confirmReject}
+              disabled={rejectModal.loading || !rejectModal.reason.trim()}
+              className="px-6 py-2 text-[10px] uppercase tracking-widest font-bold bg-red-500 hover:bg-red-600 text-white rounded-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {rejectModal.loading ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                t("reject")
+              )}
             </button>
           </div>
         </div>

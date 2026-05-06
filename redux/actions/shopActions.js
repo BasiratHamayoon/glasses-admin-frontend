@@ -5,7 +5,11 @@ const cleanParams = (params) => {
   const cleaned = {};
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
-      if (value !== "" && value != null && (!Array.isArray(value) || value.length > 0)) {
+      if (
+        value !== "" &&
+        value != null &&
+        (!Array.isArray(value) || value.length > 0)
+      ) {
         cleaned[key] =
           Array.isArray(value) && value.length === 1
             ? value[0]
@@ -18,43 +22,79 @@ const cleanParams = (params) => {
   return cleaned;
 };
 
-export const fetchShops = createAsyncThunk("shops/fetchAll", async (params) => {
-  const response = await api.get("/admin/shops", {
-    params: { ...cleanParams(params), _t: Date.now() },
-  });
-  return response.data.data;
-});
-
-export const getShopById = createAsyncThunk("shops/getById", async (id) => {
-  const response = await api.get(`/admin/shops/${id}`, {
-    params: { _t: Date.now() },
-  });
-  return response.data.data;
-});
-
-export const createShop = createAsyncThunk("shops/create", async (data, { rejectWithValue }) => {
-  try {
-    const response = await api.post("/admin/shops", data);
-    return response.data.data.shop;
-  } catch (error) {
-    return rejectWithValue(error.response?.data?.message || "Failed to create shop");
+export const fetchShops = createAsyncThunk(
+  "shops/fetchAll",
+  async ({ force, ...params } = {}, { rejectWithValue }) => {
+    try {
+      const response = await api.get("/admin/shops", {
+        params: cleanParams(params),
+      });
+      return response.data.data;
+    } catch (err) {
+      return rejectWithValue(err.response?.data || err.message);
+    }
+  },
+  {
+    condition: (arg, { getState }) => {
+      const force = arg?.force === true;
+      if (force) return true;
+      const { loading, initialized } = getState().shops.shops;
+      if (loading || initialized) return false;
+      return true;
+    },
   }
-});
+);
 
-export const updateShop = createAsyncThunk("shops/update", async ({ id, data }, { rejectWithValue }) => {
-  try {
-    const response = await api.put(`/admin/shops/${id}`, data);
-    return response.data.data.shop;
-  } catch (error) {
-    return rejectWithValue(error.response?.data?.message || "Failed to update shop");
+export const getShopById = createAsyncThunk(
+  "shops/getById",
+  async (id, { rejectWithValue }) => {
+    try {
+      const response = await api.get(`/admin/shops/${id}`);
+      return response.data.data;
+    } catch (err) {
+      return rejectWithValue(err.response?.data || err.message);
+    }
   }
-});
+);
 
-export const deleteShop = createAsyncThunk("shops/delete", async (id, { rejectWithValue }) => {
-  try {
-    await api.delete(`/admin/shops/${id}`);
-    return id;
-  } catch (error) {
-    return rejectWithValue(error.response?.data?.message || "Failed to delete shop");
+export const createShop = createAsyncThunk(
+  "shops/create",
+  async (data, { rejectWithValue }) => {
+    try {
+      const response = await api.post("/admin/shops", data);
+      return response.data.data.shop;
+    } catch (error) {
+      return rejectWithValue(
+        error.response?.data?.message || "Failed to create shop"
+      );
+    }
   }
-});
+);
+
+export const updateShop = createAsyncThunk(
+  "shops/update",
+  async ({ id, data }, { rejectWithValue }) => {
+    try {
+      const response = await api.put(`/admin/shops/${id}`, data);
+      return response.data.data.shop;
+    } catch (error) {
+      return rejectWithValue(
+        error.response?.data?.message || "Failed to update shop"
+      );
+    }
+  }
+);
+
+export const deleteShop = createAsyncThunk(
+  "shops/delete",
+  async (id, { rejectWithValue }) => {
+    try {
+      await api.delete(`/admin/shops/${id}`);
+      return id;
+    } catch (error) {
+      return rejectWithValue(
+        error.response?.data?.message || "Failed to delete shop"
+      );
+    }
+  }
+);

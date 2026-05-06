@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
-import { Plus, DollarSign, CheckCircle } from "lucide-react";
+import { Plus, CheckCircle, Eye, Edit2 } from "lucide-react";
 
 import {
   fetchSalaryStructures,
@@ -45,98 +45,107 @@ export default function SalariesPage() {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
 
   const debounceTimer = useRef(null);
-  const initFetched = useRef(false);
-  const isMounted = useRef(false);
-
-  const stateRef = useRef({ activeTab, salaryFilters, currentPage });
-  useEffect(() => {
-    stateRef.current = { activeTab, salaryFilters, currentPage };
-  });
+  const initialFetchDone = useRef(false);
+  const skipNextPageEffect = useRef(true);
+  const shopsFetched = useRef(false);
+  const employeesFetched = useRef(false);
+  const activeTabRef = useRef("structures");
+  const salaryFiltersRef = useRef(initialSalaryFilters);
+  const pageRef = useRef(1);
 
   const { structures, salaries } = useSelector(state => state.salary || {
     structures: { items: [], loading: false, pagination: {} },
-    salaries: { items: [], totals: {}, loading: false, pagination: {} }
+    salaries: { items: [], totals: {}, loading: false, pagination: {} },
   });
 
   const employeesState = useSelector(state => state.employees);
   const employees = employeesState?.items || [];
   const employeesLoading = employeesState?.loading || false;
 
-  useEffect(() => {
-    if (!initFetched.current) {
-      dispatch(fetchShops({ limit: 100 }));
-      initFetched.current = true;
-    }
-  }, [dispatch]);
-
   const runFetch = useCallback((tab, page, filters) => {
     if (tab === "structures") {
       dispatch(fetchSalaryStructures({ page, limit: ITEMS_PER_PAGE }));
     } else if (tab === "paySalary") {
-      const employeeParams = { limit: 100, isActive: true };
-      if (filters.search) employeeParams.search = filters.search;
-      if (filters.shopId) employeeParams.shopId = filters.shopId;
-      dispatch(fetchEmployees(employeeParams));
+      if (!employeesFetched.current) {
+        employeesFetched.current = true;
+        const employeeParams = { limit: 100, isActive: true };
+        if (filters.shopId) employeeParams.shopId = filters.shopId;
+        dispatch(fetchEmployees(employeeParams));
+      }
       dispatch(fetchSalariesByMonth({
         month: currentMonth,
         year: currentYear,
         params: {
           shopId: filters.shopId || undefined,
           paymentStatus: filters.paymentStatus?.length > 0 ? filters.paymentStatus.join(",") : undefined,
-        }
+        },
       }));
     }
   }, [dispatch, currentMonth, currentYear]);
 
-  const scheduleFetch = useCallback((tab, page, filters, delay = 300) => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => {
-      runFetch(tab, page, filters);
-    }, delay);
-  }, [runFetch]);
+  useEffect(() => { salaryFiltersRef.current = salaryFilters; }, [salaryFilters]);
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+  useEffect(() => { pageRef.current = currentPage; }, [currentPage]);
 
   useEffect(() => {
-    return () => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    };
+    return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
   }, []);
 
   useEffect(() => {
-    if (!isMounted.current) {
-      isMounted.current = true;
-      runFetch("structures", 1, initialSalaryFilters);
+    if (initialFetchDone.current) return;
+    initialFetchDone.current = true;
+    skipNextPageEffect.current = true;
+    runFetch("structures", 1, initialSalaryFilters);
+  }, []);
+
+  useEffect(() => {
+    if (skipNextPageEffect.current) {
+      skipNextPageEffect.current = false;
       return;
     }
-  }, []);
+    runFetch(activeTabRef.current, currentPage, salaryFiltersRef.current);
+  }, [currentPage]);
 
   useEffect(() => {
-    if (!isMounted.current) return;
-    scheduleFetch(activeTab, currentPage, stateRef.current.salaryFilters, 0);
-  }, [activeTab, currentPage]);
-
-  useEffect(() => {
-    if (!isMounted.current) return;
-    if (stateRef.current.activeTab !== "paySalary") return;
-    scheduleFetch("paySalary", 1, salaryFilters, 300);
+    if (!initialFetchDone.current) return;
+    skipNextPageEffect.current = true;
     setCurrentPage(1);
-  }, [
-    salaryFilters.search,
-    salaryFilters.shopId,
-    salaryFilters.paymentStatus,
-  ]);
+    pageRef.current = 1;
+
+    if (activeTab === "paySalary" && !shopsFetched.current) {
+      shopsFetched.current = true;
+      dispatch(fetchShops({ limit: 100 }));
+    }
+
+    runFetch(activeTab, 1, salaryFiltersRef.current);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!initialFetchDone.current) return;
+    if (activeTabRef.current !== "paySalary") return;
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      skipNextPageEffect.current = true;
+      setCurrentPage(1);
+      pageRef.current = 1;
+
+      if (salaryFilters.shopId) {
+        employeesFetched.current = false;
+      }
+
+      runFetch("paySalary", 1, salaryFilters);
+    }, 300);
+  }, [salaryFilters.search, salaryFilters.shopId, salaryFilters.paymentStatus]);
 
   const refreshCurrent = useCallback(() => {
-    const { activeTab: tab, currentPage: page, salaryFilters: filters } = stateRef.current;
-    runFetch(tab, page, filters);
+    runFetch(activeTabRef.current, pageRef.current, salaryFiltersRef.current);
   }, [runFetch]);
 
   const handleTabChange = (tabId) => {
-    if (tabId === stateRef.current.activeTab) return;
+    if (tabId === activeTabRef.current) return;
     setActiveTab(tabId);
     setCurrentPage(1);
   };
-
-  const handlePageChange = (page) => setCurrentPage(page);
 
   const handleClearFilters = () => {
     setSalaryFilters(initialSalaryFilters);
@@ -151,14 +160,14 @@ export default function SalariesPage() {
           amount: paymentData.amount,
           paymentMethod: paymentData.paymentMethod,
           transactionReference: paymentData.transactionReference,
-        }
+        },
       })).unwrap();
-      toast.success(t("paymentSuccess") || "Payment processed successfully");
+      toast.success(t("paymentSuccess"));
       setPayModalOpen(false);
       setSelectedEmployee(null);
       refreshCurrent();
     } catch {
-      toast.error(t("paymentError") || "Payment failed");
+      toast.error(t("paymentError"));
     }
   };
 
@@ -176,7 +185,7 @@ export default function SalariesPage() {
 
   const openPayModal = (employee) => {
     if (!employee || !employee._id) {
-      toast.error("Invalid employee data");
+      toast.error(t("invalidEmployeeData"));
       return;
     }
     setSelectedEmployee(employee);
@@ -195,116 +204,169 @@ export default function SalariesPage() {
 
     if (salaryFilters.paymentStatus.length > 0) {
       const isPaid = salaryRecord?.paymentStatus === "PAID";
-      const isUnpaid = !salaryRecord || salaryRecord?.paymentStatus !== "PAID";
       if (salaryFilters.paymentStatus.includes("PAID") && !isPaid) return false;
-      if (salaryFilters.paymentStatus.includes("UNPAID") && !isUnpaid) return false;
+      if (salaryFilters.paymentStatus.includes("UNPAID") && isPaid) return false;
     }
 
     return true;
   });
 
   const structureCols = [
-    { header: t("code") || "Code", accessor: "code" },
-    { header: t("name") || "Name", accessor: "name" },
-    { header: t("basic") || "Basic", render: r => <span className="font-bold">{r.basicSalary?.toLocaleString()}</span> },
-    { header: t("gross") || "Gross", render: r => <span className="font-black text-[#E9B10C]">{r.grossSalary?.toLocaleString()}</span> },
+    { header: t("code"), accessor: "code" },
+    { header: t("name"), accessor: "name" },
     {
-      header: t("status") || "Status",
-      render: r => (
-        <span className={`px-2 py-1 text-[8px] uppercase tracking-widest font-black rounded-sm ${r.isActive ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"}`}>
-          {r.isActive ? (t("active") || "Active") : (t("inactive") || "Inactive")}
+      header: t("basicSalary"),
+      render: (r) => (
+        <span className="font-bold flex items-center gap-1">
+          ⃁ {r.basicSalary?.toLocaleString()}
         </span>
-      )
+      ),
     },
     {
-      header: t("actions") || "Actions",
-      render: r => (
+      header: t("grossSalary"),
+      render: (r) => (
+        <span className="font-black text-[#E9B10C] flex items-center gap-1">
+          ⃁ {r.grossSalary?.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      header: t("status"),
+      render: (r) => (
+        <span className={`px-2 py-1 text-[8px] uppercase tracking-widest font-black rounded-sm ${r.isActive ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"}`}>
+          {r.isActive ? t("active") : t("inactive")}
+        </span>
+      ),
+    },
+    {
+      header: t("actions"),
+      render: (r) => (
         <div className="flex gap-3 items-center">
-          <button onClick={() => setViewStructure({ isOpen: true, data: r })} className="text-neutral-500 hover:text-blue-500 transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          <button
+            onClick={() => setViewStructure({ isOpen: true, data: r })}
+            className="text-neutral-500 hover:text-blue-500 transition-colors"
+            title={t("view")}
+          >
+            <Eye size={14} />
           </button>
-          <button onClick={() => { setSelectedItem(r); setStructureModalOpen(true); }} className="text-neutral-500 hover:text-[#E9B10C] transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3l4 4-7 7H10v-4l7-7z"></path><path d="M14 8l-6 6"></path><path d="M4 20h16"></path></svg>
+          <button
+            onClick={() => { setSelectedItem(r); setStructureModalOpen(true); }}
+            className="text-neutral-500 hover:text-[#E9B10C] transition-colors"
+            title={t("edit")}
+          >
+            <Edit2 size={14} />
           </button>
         </div>
-      )
-    }
+      ),
+    },
   ];
 
   const employeeCols = [
     {
-      header: t("employee") || "Employee",
-      render: row => (
+      header: t("employee"),
+      render: (row) => (
         <div className="flex flex-col">
-          <span className="text-[11px] font-black">{row.firstName} {row.lastName}</span>
+          <span className="text-[11px] font-black text-black dark:text-white">
+            {row.firstName} {row.lastName}
+          </span>
           <span className="text-[8px] text-neutral-500 uppercase">{row.employeeId}</span>
         </div>
-      )
+      ),
     },
-    { header: t("designation") || "Designation", accessor: "designation" },
-    { header: t("department") || "Department", render: row => <span className="text-[9px] uppercase tracking-wider">{row.department || "-"}</span> },
-    { header: t("shop") || "Shop", render: row => <span className="text-[9px] uppercase tracking-wider">{row.primaryShop?.name || "-"}</span> },
-    { header: t("salaryStructure") || "Salary Structure", render: row => <span className="text-[9px] font-medium">{row.salaryStructure?.name || t("notAssigned") || "Not Assigned"}</span> },
+    { header: t("designation"), accessor: "designation" },
     {
-      header: t("status") || "Status",
-      render: row => {
+      header: t("department"),
+      render: (row) => (
+        <span className="text-[9px] uppercase tracking-wider text-neutral-600 dark:text-neutral-400">
+          {row.department || "-"}
+        </span>
+      ),
+    },
+    {
+      header: t("shop"),
+      render: (row) => (
+        <span className="text-[9px] uppercase tracking-wider text-neutral-600 dark:text-neutral-400">
+          {row.primaryShop?.name || "-"}
+        </span>
+      ),
+    },
+    {
+      header: t("salaryStructure"),
+      render: (row) => (
+        <span className="text-[9px] font-medium text-neutral-600 dark:text-neutral-400">
+          {row.salaryStructure?.name || t("notAssigned")}
+        </span>
+      ),
+    },
+    {
+      header: t("salaryStatus"),
+      render: (row) => {
         const isPaid = isEmployeePaid(row._id);
         return isPaid ? (
           <span className="flex items-center gap-1.5 px-2 py-1 bg-green-500/10 text-green-500 rounded-sm w-fit text-[8px] uppercase font-bold">
-            <CheckCircle size={10} /> {t("paid") || "Paid"}
+            <CheckCircle size={10} /> {t("paid")}
           </span>
         ) : (
           <span className="px-2 py-1 bg-red-500/10 text-red-500 rounded-sm w-fit text-[8px] uppercase font-bold">
-            {t("unpaid") || "Unpaid"}
+            {t("unpaid")}
           </span>
         );
-      }
+      },
     },
     {
-      header: t("actions") || "Actions",
-      render: row => {
+      header: t("actions"),
+      render: (row) => {
         const isPaid = isEmployeePaid(row._id);
         return isPaid ? (
           <span className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/10 text-green-500 rounded-sm w-fit text-[9px] uppercase font-bold">
-            <CheckCircle size={12} /> {t("paid") || "Paid"}
+            <CheckCircle size={12} /> {t("paid")}
           </span>
         ) : (
-          <button onClick={() => openPayModal(row)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#E9B10C] text-black hover:bg-[#d6a00b] transition-colors rounded-sm text-[9px] uppercase font-bold">
-            <DollarSign size={12} /> {t("pay") || "Pay"}
+          <button
+            onClick={() => openPayModal(row)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#E9B10C] text-black hover:bg-[#d6a00b] transition-colors rounded-sm text-[9px] uppercase font-bold"
+          >
+            ⃁ {t("pay")}
           </button>
         );
-      }
-    }
+      },
+    },
   ];
 
-  if (!isMounted.current && structures.loading && !structures.items.length) return <PageSkeleton />;
+  if (!initialFetchDone.current && structures.loading && !structures.items.length) {
+    return <PageSkeleton />;
+  }
 
   return (
     <div className="space-y-6" dir={isArabic ? "rtl" : "ltr"}>
-      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 w-full">
-        <div key={language} className="flex bg-white dark:bg-[#111111] p-1 border border-neutral-200 dark:border-neutral-800 rounded-sm overflow-x-auto scrollbar-hide shadow-sm w-full xl:w-auto">
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 w-full border-b border-neutral-200 dark:border-neutral-800 pb-4">
+        <div className="flex bg-white dark:bg-[#111111] p-1 border border-neutral-200 dark:border-neutral-800 rounded-sm overflow-x-auto scrollbar-hide w-full xl:w-auto">
           {[
-            { id: "structures", label: t("salaryStructures") || "Salary Structures" },
-            { id: "paySalary", label: t("paySalary") || "Pay Salary" }
-          ].map(tab => (
+            { id: "structures", labelKey: "salaryStructures" },
+            { id: "paySalary", labelKey: "paySalary" },
+          ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => handleTabChange(tab.id)}
-              className={`flex-none px-6 py-2.5 text-[10px] uppercase tracking-widest font-black transition-all rounded-sm whitespace-nowrap ${activeTab === tab.id ? "bg-[#E9B10C] text-black shadow-sm" : "text-neutral-500 hover:text-black dark:hover:text-white"}`}
+              className={`flex-none px-6 py-2.5 text-[10px] uppercase tracking-widest font-black transition-all rounded-sm whitespace-nowrap ${
+                activeTab === tab.id
+                  ? "bg-[#E9B10C] text-black shadow-sm"
+                  : "text-neutral-500 hover:text-black dark:hover:text-white"
+              }`}
             >
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           ))}
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto scrollbar-hide">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           {activeTab === "structures" && (
             <button
               onClick={() => { setSelectedItem(null); setStructureModalOpen(true); }}
-              className="flex items-center gap-2 px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black hover:bg-[#E9B10C] hover:text-black transition-colors rounded-sm shrink-0"
+              className="flex items-center gap-2 px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black hover:bg-[#E9B10C] hover:text-black transition-colors rounded-sm shrink-0 w-full sm:w-auto"
             >
               <Plus size={14} strokeWidth={3} />
-              <span className="text-[10px] uppercase font-black tracking-widest">{t("addStructure") || "Add Structure"}</span>
+              <span className="text-[10px] uppercase font-black tracking-widest">{t("addStructure")}</span>
             </button>
           )}
         </div>
@@ -314,51 +376,68 @@ export default function SalariesPage() {
         {activeTab === "structures" && (
           <>
             <BaseTable columns={structureCols} data={structures.items || []} loading={structures.loading} />
-            <BasePagination currentPage={currentPage} totalPages={structures.pagination?.totalPages || 1} onPageChange={handlePageChange} />
+            <BasePagination
+              currentPage={currentPage}
+              totalPages={structures.pagination?.totalPages || 1}
+              onPageChange={setCurrentPage}
+            />
           </>
         )}
 
         {activeTab === "paySalary" && (
           <>
             <div className="mb-4 pb-4 border-b border-neutral-200 dark:border-neutral-800">
-              <div className="flex justify-between items-center mb-3">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
                 <p className="text-[11px] font-medium text-neutral-500">
-                  {t("currentMonthYear") || "Current Month & Year"}: {new Date(currentYear, currentMonth - 1).toLocaleString("default", { month: "long" })} {currentYear}
+                  {t("currentMonthYear")}: {new Date(currentYear, currentMonth - 1).toLocaleString("default", { month: "long" })} {currentYear}
                 </p>
-                <div className="flex gap-3 text-[9px] font-bold">
-                  <span className="flex items-center gap-1">
+                <div className="flex gap-4 text-[9px] font-bold">
+                  <span className="flex items-center gap-1.5">
                     <CheckCircle size={10} className="text-green-500" />
-                    <span className="text-green-500">{t("paid") || "Paid"}</span>
+                    <span className="text-green-500">{t("paid")}</span>
+                    <span className="text-neutral-400 font-bold ml-1">
+                      ({filteredEmployees.filter(e => isEmployeePaid(e._id)).length})
+                    </span>
                   </span>
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-red-500" />
-                    <span className="text-red-500">{t("unpaid") || "Unpaid"}</span>
+                    <span className="text-red-500">{t("unpaid")}</span>
+                    <span className="text-neutral-400 font-bold ml-1">
+                      ({filteredEmployees.filter(e => !isEmployeePaid(e._id)).length})
+                    </span>
                   </span>
                 </div>
               </div>
               <SalaryFilter
                 filters={salaryFilters}
                 setFilters={setSalaryFilters}
-                onApply={() => {}}
                 onClear={handleClearFilters}
               />
             </div>
-            <BaseTable columns={employeeCols} data={filteredEmployees} loading={employeesLoading || salaries.loading} />
+            <BaseTable
+              columns={employeeCols}
+              data={filteredEmployees}
+              loading={employeesLoading || salaries.loading}
+            />
           </>
         )}
       </div>
 
       <SalaryStructureModal
         isOpen={isStructureModalOpen}
-        onClose={() => { setStructureModalOpen(false); refreshCurrent(); }}
+        onClose={(didSave) => {
+          setStructureModalOpen(false);
+          setSelectedItem(null);
+          if (didSave) refreshCurrent();
+        }}
         initialData={selectedItem}
       />
       <PaySalaryModal
         isOpen={isPayModalOpen}
-        onClose={(isSuccess) => {
+        onClose={(didSave) => {
           setPayModalOpen(false);
           setSelectedEmployee(null);
-          refreshCurrent();
+          if (didSave) refreshCurrent();
         }}
         employee={selectedEmployee}
         month={currentMonth}

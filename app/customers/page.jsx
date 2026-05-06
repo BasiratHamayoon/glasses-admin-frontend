@@ -3,12 +3,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
 
 import {
   fetchCustomers,
   fetchCustomerStats,
-  getCustomerById
+  getCustomerById,
 } from "@/redux/actions/customerActions";
 import { fetchShops } from "@/redux/actions/shopActions";
 
@@ -17,13 +16,19 @@ import { CustomerTable } from "@/components/tables/CustomerTable";
 import { BasePagination } from "@/components/pagination/BasePagination";
 import { PageSkeleton } from "@/components/loaders-and-skeletons/PageSkeleton";
 import { CustomerStats } from "@/components/cards/statCards/CustomerStats";
-
 import { CustomerModal } from "@/components/modals/addUpdate/CustomerModal";
 import { PrescriptionModal } from "@/components/modals/addUpdate/PrescriptionModal";
 import { CustomerViewModal } from "@/components/modals/view/CustomerViewModal";
 
 const ITEMS_PER_PAGE = 15;
-const initialFilters = { search: "", status: [], isWebsiteUser: [], loyaltyTier: [] };
+const initialFilters = {
+  search: "",
+  status: [],
+  isWebsiteUser: [],
+  loyaltyTier: [],
+};
+
+let _customersPageLock = false;
 
 export default function CustomersPage() {
   const { t, language } = useLanguage();
@@ -33,31 +38,29 @@ export default function CustomersPage() {
   const [filters, setFilters] = useState(initialFilters);
   const [currentPage, setCurrentPage] = useState(1);
 
-  const [isAddOpen, setAddOpen] = useState(false);
   const [isPrescriptionOpen, setPrescriptionOpen] = useState(false);
-  const [viewData, setViewData] = useState({ isOpen: false, data: null });
+  const [viewData, setViewData] = useState({
+    isOpen: false,
+    data: null,
+    loading: false,
+  });
   const [selectedItem, setSelectedItem] = useState(null);
+  const [isEditOpen, setEditOpen] = useState(false);
 
   const debounceTimer = useRef(null);
-  const initFetched = useRef(false);
-  const isMounted = useRef(false);
-
-  const stateRef = useRef({ filters, currentPage });
-  useEffect(() => {
-    stateRef.current = { filters, currentPage };
-  });
+  const skipNextPageEffect = useRef(true);
+  const filtersRef = useRef(initialFilters);
+  const pageRef = useRef(1);
 
   const {
     customers = { items: [], loading: false, pagination: {} },
-    stats = null
-  } = useSelector(state => state.customers || {});
+    stats = null,
+    statsInitialized,
+  } = useSelector((state) => state.customers || {});
 
-  useEffect(() => {
-    if (!initFetched.current) {
-      dispatch(fetchShops({ limit: 100 }));
-      initFetched.current = true;
-    }
-  }, [dispatch]);
+  const shopsState = useSelector(
+    (state) => state.shops?.shops || { initialized: false, loading: false }
+  );
 
   const buildParams = (f, page) => {
     const params = { page, limit: ITEMS_PER_PAGE };
@@ -68,17 +71,20 @@ export default function CustomersPage() {
     return params;
   };
 
-  const runFetch = useCallback((f, page) => {
-    dispatch(fetchCustomerStats());
-    dispatch(fetchCustomers(buildParams(f, page)));
-  }, [dispatch]);
+  const runFetch = useCallback(
+    (f, page) => {
+      dispatch(fetchCustomers(buildParams(f, page)));
+    },
+    [dispatch]
+  );
 
-  const scheduleFetch = useCallback((f, page, delay = 300) => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => {
-      runFetch(f, page);
-    }, delay);
-  }, [runFetch]);
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
+  useEffect(() => {
+    pageRef.current = currentPage;
+  }, [currentPage]);
 
   useEffect(() => {
     return () => {
@@ -87,22 +93,42 @@ export default function CustomersPage() {
   }, []);
 
   useEffect(() => {
-    if (!isMounted.current) {
-      isMounted.current = true;
-      runFetch(initialFilters, 1);
-      return;
+    if (_customersPageLock) return;
+    _customersPageLock = true;
+
+    if (!shopsState.initialized && !shopsState.loading) {
+      dispatch(fetchShops({ limit: 100 }));
     }
+
+    if (!statsInitialized) {
+      dispatch(fetchCustomerStats());
+    }
+
+    skipNextPageEffect.current = true;
+    runFetch(initialFilters, 1);
+
+    return () => {
+      _customersPageLock = false;
+    };
   }, []);
 
   useEffect(() => {
-    if (!isMounted.current) return;
-    scheduleFetch(stateRef.current.filters, currentPage, 0);
+    if (skipNextPageEffect.current) {
+      skipNextPageEffect.current = false;
+      return;
+    }
+    runFetch(filtersRef.current, currentPage);
   }, [currentPage]);
 
   useEffect(() => {
-    if (!isMounted.current) return;
-    setCurrentPage(1);
-    scheduleFetch(filters, 1, 300);
+    if (!_customersPageLock) return;
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      skipNextPageEffect.current = true;
+      setCurrentPage(1);
+      pageRef.current = 1;
+      runFetch(filters, 1);
+    }, 300);
   }, [
     filters.search,
     filters.status,
@@ -111,11 +137,8 @@ export default function CustomersPage() {
   ]);
 
   const refreshCurrent = useCallback(() => {
-    const { filters: f, currentPage: page } = stateRef.current;
-    runFetch(f, page);
+    runFetch(filtersRef.current, pageRef.current);
   }, [runFetch]);
-
-  const handlePageChange = (page) => setCurrentPage(page);
 
   const handleClearFilters = () => {
     setFilters(initialFilters);
@@ -123,72 +146,91 @@ export default function CustomersPage() {
   };
 
   const handleViewProfile = async (customer) => {
+    setViewData({ isOpen: true, data: null, loading: true });
     try {
-      const toastId = toast.loading("Loading profile...");
       const fullProfile = await dispatch(getCustomerById(customer._id)).unwrap();
-      toast.dismiss(toastId);
-      setViewData({ isOpen: true, data: fullProfile });
+      setViewData({ isOpen: true, data: fullProfile, loading: false });
     } catch {
-      toast.error("Failed to load customer profile");
+      toast.error(t("failedToLoadProfile"));
+      setViewData({ isOpen: false, data: null, loading: false });
     }
   };
 
-  const safeCustomerData = Array.isArray(customers?.items) ? customers.items : [];
+  const handleEditModalClose = (didSave) => {
+    setEditOpen(false);
+    setSelectedItem(null);
+    if (didSave) refreshCurrent();
+  };
 
-  if (!isMounted.current && customers.loading && !customers.items.length && !stats) return <PageSkeleton />;
+  const handlePrescriptionModalClose = (didSave) => {
+    setPrescriptionOpen(false);
+    setSelectedItem(null);
+    if (didSave) refreshCurrent();
+  };
+
+  const safeCustomerData = Array.isArray(customers?.items)
+    ? customers.items
+    : [];
+
+  if (
+    !_customersPageLock &&
+    customers.loading &&
+    !customers.items.length &&
+    !stats
+  ) {
+    return <PageSkeleton />;
+  }
 
   return (
     <div className="space-y-6" dir={isArabic ? "rtl" : "ltr"}>
       <CustomerStats stats={stats} />
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 w-full border-b border-neutral-200 dark:border-neutral-800 pb-4">
-        <h1 className="text-xl font-black uppercase tracking-widest text-black dark:text-white">
-          {t("customers") || "Customer Directory"}
+        <h1 className="text-[11px] uppercase font-black tracking-[0.3em] text-black dark:text-white">
+          {t("customers")}
         </h1>
-        <button
-          onClick={() => { setSelectedItem(null); setAddOpen(true); }}
-          className="flex items-center gap-2 px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black hover:bg-[#E9B10C] hover:text-black transition-colors rounded-sm shrink-0"
-        >
-          <Plus size={14} strokeWidth={3} />
-          <span className="text-[10px] uppercase font-black tracking-widest">{t("addCustomer") || "Add Customer"}</span>
-        </button>
       </div>
 
       <div className="bg-white dark:bg-[#111111] border border-neutral-200 dark:border-neutral-800 p-4 sm:p-6 rounded-sm min-h-[400px]">
         <CustomerFilter
           filters={filters}
           setFilters={setFilters}
-          onApply={() => {}}
           onClear={handleClearFilters}
         />
         <CustomerTable
           data={safeCustomerData}
           loading={customers?.loading}
           onView={handleViewProfile}
-          onEdit={(item) => { setSelectedItem(item); setAddOpen(true); }}
-          onAddPrescription={(item) => { setSelectedItem(item); setPrescriptionOpen(true); }}
+          onEdit={(item) => {
+            setSelectedItem(item);
+            setEditOpen(true);
+          }}
+          onAddPrescription={(item) => {
+            setSelectedItem(item);
+            setPrescriptionOpen(true);
+          }}
         />
         <BasePagination
           currentPage={currentPage}
           totalPages={customers.pagination?.totalPages || 1}
-          onPageChange={handlePageChange}
+          onPageChange={setCurrentPage}
         />
       </div>
 
       <CustomerModal
-        isOpen={isAddOpen}
-        onClose={() => { setAddOpen(false); refreshCurrent(); }}
+        isOpen={isEditOpen}
+        onClose={handleEditModalClose}
         initialData={selectedItem}
-        onSuccess={refreshCurrent}
       />
       <CustomerViewModal
         isOpen={viewData.isOpen}
-        onClose={() => setViewData({ isOpen: false, data: null })}
+        onClose={() => setViewData({ isOpen: false, data: null, loading: false })}
         data={viewData.data}
+        loading={viewData.loading}
       />
       <PrescriptionModal
         isOpen={isPrescriptionOpen}
-        onClose={() => { setPrescriptionOpen(false); refreshCurrent(); }}
+        onClose={handlePrescriptionModalClose}
         customer={selectedItem}
       />
     </div>

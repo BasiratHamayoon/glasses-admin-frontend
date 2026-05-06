@@ -16,7 +16,7 @@ export const PurchaseTable = ({
   onView,
   onApprove,
   onReject,
-  showActions = false, // true for pending-requests tab
+  showActions = false,
 }) => {
   const columns = [
     {
@@ -27,9 +27,7 @@ export const PurchaseTable = ({
             {row.purchaseNumber}
           </span>
           <span className="text-[8px] text-neutral-500 uppercase">
-            {row.purchaseDate
-              ? format(new Date(row.purchaseDate), "dd MMM yyyy")
-              : "—"}
+            {row.purchaseDate ? format(new Date(row.purchaseDate), "dd MMM yyyy") : "—"}
           </span>
         </div>
       ),
@@ -79,16 +77,16 @@ export const PurchaseTable = ({
     {
       header: "Unit Price",
       render: (row) => (
-        <span className="text-[11px] font-black">
-          SAR {row.price?.toLocaleString() || 0}
+        <span className="text-[11px] font-black flex items-center gap-1">
+          ⃁ {row.price?.toLocaleString() || 0}
         </span>
       ),
     },
     {
       header: "Total",
       render: (row) => (
-        <span className="text-[11px] font-black text-[#E9B10C]">
-          SAR {((row.price || 0) * (row.quantity || 1)).toLocaleString()}
+        <span className="text-[11px] font-black text-[#E9B10C] flex items-center gap-1">
+          ⃁ {((row.price || 0) * (row.quantity || 1)).toLocaleString()}
         </span>
       ),
     },
@@ -105,11 +103,7 @@ export const PurchaseTable = ({
       render: (row) => {
         const status = row.editRequest?.status || "NONE";
         return (
-          <span
-            className={`px-2 py-1 text-[8px] uppercase tracking-widest font-black rounded-sm ${
-              editStatusBadge[status]
-            }`}
-          >
+          <span className={`px-2 py-1 text-[8px] uppercase tracking-widest font-black rounded-sm ${editStatusBadge[status]}`}>
             {status}
           </span>
         );

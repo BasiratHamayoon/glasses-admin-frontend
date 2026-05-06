@@ -12,7 +12,7 @@ export const ProductStats = ({ products, categories }) => {
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       <BaseCard title={t("totalProducts")} value={products?.length || 0} icon={Package} />
       <BaseCard title={t("activeCategories")} value={activeCategoriesCount} icon={Tags} />
-      <BaseCard title={t("totalValue")} value={`SAR ${totalValue.toFixed(2)}`} icon={Percent} />
+      <BaseCard title={t("totalValue")} value={`${totalValue.toFixed(2)} ⃁`} icon={Percent} />
     </div>
   );
 };

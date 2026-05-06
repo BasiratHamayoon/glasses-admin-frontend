@@ -1,41 +1,41 @@
 import { createSlice } from '@reduxjs/toolkit';
-import { 
-  fetchEmployees, 
-  createEmployee, 
-  createEmployeeWithUser, 
-  updateEmployee, 
-  updateEmployeeStatus, 
+import {
+  fetchEmployees,
+  createEmployee,
+  createEmployeeWithUser,
+  updateEmployee,
+  updateEmployeeStatus,
   deleteEmployee,
-  fetchShifts, 
-  createShift, 
-  updateShift, 
-  toggleShiftStatus, 
-  deleteShift 
+  fetchShifts,
+  createShift,
+  updateShift,
+  toggleShiftStatus,
+  deleteShift,
 } from '../actions/employeeActions';
 
 const employeeSlice = createSlice({
   name: 'employees',
-  initialState: { 
-    items: [], 
-    loading: false, 
+  initialState: {
+    items: [],
+    loading: false,
     pagination: {},
     error: null,
-    shifts: { 
-      items: [], 
-      loading: false, 
+    shifts: {
+      items: [],
+      loading: false,
       pagination: {},
-      error: null
-    }
+      error: null,
+    },
   },
   reducers: {},
   extraReducers: (builder) => {
     builder
-      .addCase(fetchEmployees.pending, (state) => { 
-        state.loading = true; 
+      .addCase(fetchEmployees.pending, (state) => {
+        state.loading = true;
         state.error = null;
       })
-      .addCase(fetchEmployees.fulfilled, (state, action) => { 
-        state.loading = false; 
+      .addCase(fetchEmployees.fulfilled, (state, action) => {
+        state.loading = false;
         const payload = action.payload;
         if (Array.isArray(payload)) {
           state.items = payload;
@@ -46,41 +46,44 @@ const employeeSlice = createSlice({
         } else {
           state.items = [];
         }
-        state.pagination = payload?.pagination || {}; 
+        state.pagination = payload?.pagination || {};
       })
       .addCase(fetchEmployees.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.error?.message || 'Failed to fetch employees';
+        state.error = action.payload || 'Failed to fetch employees';
       })
-      .addCase(createEmployee.fulfilled, (state, action) => { 
-        state.items.unshift(action.payload); 
-      })
-      .addCase(createEmployeeWithUser.fulfilled, (state, action) => { 
-        state.items.unshift(action.payload.employee || action.payload); 
-      })
-      .addCase(updateEmployee.fulfilled, (state, action) => { 
-        const index = state.items.findIndex(e => e._id === action.payload._id); 
-        if (index !== -1) {
-          state.items[index] = action.payload; 
-        }
-      })
-      .addCase(updateEmployeeStatus.fulfilled, (state, action) => { 
-        const index = state.items.findIndex(e => e._id === action.payload._id); 
-        if (index !== -1) {
-          state.items[index] = action.payload; 
-        }
-      })
-      .addCase(deleteEmployee.fulfilled, (state, action) => { 
-        state.items = state.items.filter(e => e._id !== action.payload); 
-      });
 
-    builder
-      .addCase(fetchShifts.pending, (state) => { 
-        state.shifts.loading = true; 
+      .addCase(createEmployee.fulfilled, (state, action) => {
+        if (action.payload?._id) state.items.unshift(action.payload);
+      })
+
+      .addCase(createEmployeeWithUser.fulfilled, (state, action) => {
+        if (action.payload?._id) state.items.unshift(action.payload);
+        else if (action.payload?.employee?._id) state.items.unshift(action.payload.employee);
+      })
+
+      .addCase(updateEmployee.fulfilled, (state, action) => {
+        if (!action.payload?._id) return;
+        const idx = state.items.findIndex(e => e._id === action.payload._id);
+        if (idx !== -1) state.items[idx] = action.payload;
+      })
+
+      .addCase(updateEmployeeStatus.fulfilled, (state, action) => {
+        if (!action.payload?._id) return;
+        const idx = state.items.findIndex(e => e._id === action.payload._id);
+        if (idx !== -1) state.items[idx] = action.payload;
+      })
+
+      .addCase(deleteEmployee.fulfilled, (state, action) => {
+        state.items = state.items.filter(e => e._id !== action.payload);
+      })
+
+      .addCase(fetchShifts.pending, (state) => {
+        state.shifts.loading = true;
         state.shifts.error = null;
       })
-      .addCase(fetchShifts.fulfilled, (state, action) => { 
-        state.shifts.loading = false; 
+      .addCase(fetchShifts.fulfilled, (state, action) => {
+        state.shifts.loading = false;
         const payload = action.payload;
         if (Array.isArray(payload)) {
           state.shifts.items = payload;
@@ -91,29 +94,31 @@ const employeeSlice = createSlice({
         } else {
           state.shifts.items = [];
         }
-        state.shifts.pagination = payload?.pagination || {}; 
+        state.shifts.pagination = payload?.pagination || {};
       })
       .addCase(fetchShifts.rejected, (state, action) => {
         state.shifts.loading = false;
-        state.shifts.error = action.error?.message || 'Failed to fetch shifts';
+        state.shifts.error = action.payload || 'Failed to fetch shifts';
       })
-      .addCase(createShift.fulfilled, (state, action) => { 
-        state.shifts.items.unshift(action.payload); 
+
+      .addCase(createShift.fulfilled, (state, action) => {
+        if (action.payload?._id) state.shifts.items.unshift(action.payload);
       })
-      .addCase(updateShift.fulfilled, (state, action) => { 
-        const index = state.shifts.items.findIndex(s => s._id === action.payload._id); 
-        if (index !== -1) {
-          state.shifts.items[index] = action.payload; 
-        }
+
+      .addCase(updateShift.fulfilled, (state, action) => {
+        if (!action.payload?._id) return;
+        const idx = state.shifts.items.findIndex(s => s._id === action.payload._id);
+        if (idx !== -1) state.shifts.items[idx] = action.payload;
       })
-      .addCase(toggleShiftStatus.fulfilled, (state, action) => { 
-        const index = state.shifts.items.findIndex(s => s._id === action.payload._id); 
-        if (index !== -1) {
-          state.shifts.items[index] = action.payload; 
-        }
+
+      .addCase(toggleShiftStatus.fulfilled, (state, action) => {
+        if (!action.payload?._id) return;
+        const idx = state.shifts.items.findIndex(s => s._id === action.payload._id);
+        if (idx !== -1) state.shifts.items[idx] = action.payload;
       })
-      .addCase(deleteShift.fulfilled, (state, action) => { 
-        state.shifts.items = state.shifts.items.filter(s => s._id !== action.payload); 
+
+      .addCase(deleteShift.fulfilled, (state, action) => {
+        state.shifts.items = state.shifts.items.filter(s => s._id !== action.payload);
       });
   },
 });

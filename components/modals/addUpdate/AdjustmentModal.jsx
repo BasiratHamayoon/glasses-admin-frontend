@@ -1,111 +1,258 @@
 "use client";
-import { useState } from "react";
-import { useDispatch, useSelector } from "react-redux"; // Added useSelector
-import { createAdjustment } from "@/redux/actions/inventoryActions";
+import { useState, useEffect } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import { createAdjustment, quickAdjust } from "@/redux/actions/inventoryActions";
 import { BaseModal } from "../BaseModal";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2 } from "lucide-react";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 
-export const AdjustmentModal = ({ isOpen, onClose }) => {
+const ADJ_TYPES = [
+  "STOCK_IN", "STOCK_OUT", "DAMAGE", "LOSS",
+  "FOUND", "RECOUNT", "EXPIRY", "RETURN_TO_VENDOR", "OTHER",
+];
+
+const buildDefault = () => ({
+  shop: "",
+  adjustmentType: "STOCK_IN",
+  reason: "",
+  notes: "",
+  items: [{ product: "", adjustedQuantity: "", reason: "" }],
+});
+
+export const AdjustmentModal = ({ isOpen, onClose, initialData = null }) => {
   const dispatch = useDispatch();
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
+  const [isQuick, setIsQuick] = useState(false);
+  const [formData, setFormData] = useState(buildDefault());
 
-  // FETCHING DYNAMIC DATA FROM REDUX (DATABASE)
-  const { items: shops = [] } = useSelector(state => state.shops || { items: [] });
-  const { items: products = [] } = useSelector(state => state.products || { items: [] });
+  const { inventoryProducts, inventoryShops } = useSelector(
+    (state) => state.inventory
+  );
+  const products = inventoryProducts.items;
+  const shops = inventoryShops.items;
 
-  const [formData, setFormData] = useState({
-    shop: '',
-    adjustmentType: 'PHYSICAL_COUNT',
-    reason: '',
-    items: [] // { product, adjustedQuantity, reason }
-  });
+  useEffect(() => {
+    if (isOpen) {
+      setFormData(buildDefault());
+      setIsQuick(false);
+    }
+  }, [isOpen]);
 
-  const handleAddItem = () => setFormData(prev => ({ ...prev, items: [...prev.items, { product: '', adjustedQuantity: 0, reason: '' }] }));
-  const updateItem = (index, field, value) => {
-    const newItems = [...formData.items];
-    newItems[index][field] = value;
-    setFormData(prev => ({ ...prev, items: newItems }));
+  const addItem = () => {
+    setFormData((prev) => ({
+      ...prev,
+      items: [...prev.items, { product: "", adjustedQuantity: "", reason: "" }],
+    }));
   };
-  const removeItem = (index) => setFormData(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
+
+  const removeItem = (idx) => {
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== idx),
+    }));
+  };
+
+  const updateItem = (idx, field, value) => {
+    setFormData((prev) => {
+      const items = [...prev.items];
+      items[idx] = { ...items[idx], [field]: value };
+      return { ...prev, items };
+    });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (formData.items.length === 0) return toast.error("Please add at least one product to adjust");
+    if (!formData.shop) return toast.error(t("shopRequired"));
+    if (formData.items.some((item) => !item.product || !item.adjustedQuantity))
+      return toast.error(t("allItemsRequired"));
 
     setLoading(true);
     try {
-      await dispatch(createAdjustment(formData)).unwrap();
-      toast.success('Adjustment created successfully');
-      onClose();
+      const payload = {
+        ...formData,
+        items: formData.items.map((item) => ({
+          ...item,
+          adjustedQuantity: Number(item.adjustedQuantity),
+        })),
+      };
+      if (isQuick) {
+        await dispatch(quickAdjust(payload)).unwrap();
+        toast.success(t("quickAdjDone"));
+      } else {
+        await dispatch(createAdjustment(payload)).unwrap();
+        toast.success(t("adjCreated"));
+      }
+      onClose(true);
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Failed to create adjustment');
+      toast.error(typeof err === "string" ? err : t("operationFailed"));
     } finally {
       setLoading(false);
     }
   };
 
-  const inputClass = "w-full bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 p-2 text-[11px] outline-none rounded-sm focus:border-[#E9B10C] transition-colors";
+  const inputClass =
+    "w-full bg-white dark:bg-[#111111] border border-neutral-300 dark:border-neutral-700 p-2 text-[11px] font-bold outline-none rounded-sm focus:border-[#E9B10C] transition-colors";
+  const labelClass =
+    "block text-[9px] uppercase font-bold mb-1.5 text-neutral-500";
 
   return (
-    <BaseModal isOpen={isOpen} onClose={onClose} title="New Stock Adjustment" maxWidth="max-w-3xl">
-      <form onSubmit={handleSubmit} className="space-y-4 p-2">
-        <div className="grid grid-cols-2 gap-4 border-b border-neutral-200 dark:border-neutral-800 pb-4">
+    <BaseModal
+      isOpen={isOpen}
+      onClose={() => onClose(false)}
+      title={t("newAdjustment")}
+      maxWidth="max-w-2xl"
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="flex items-center gap-3 p-3 bg-neutral-50 dark:bg-[#0a0a0a] border border-neutral-200 dark:border-neutral-800 rounded-sm">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isQuick}
+              onChange={(e) => setIsQuick(e.target.checked)}
+              className="w-3 h-3 accent-[#E9B10C]"
+            />
+            <span className="text-[10px] font-black uppercase tracking-widest text-black dark:text-white">
+              {t("quickAdjust")}
+            </span>
+          </label>
+          <span className="text-[9px] text-neutral-500">{t("quickAdjDesc")}</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <SearchableSelect
+            label={`${t("shop")} *`}
+            value={formData.shop}
+            onChange={(val) => setFormData((prev) => ({ ...prev, shop: val }))}
+            options={shops}
+            placeholder={t("searchShops")}
+            required
+            labelClass={labelClass}
+            inputClass={inputClass}
+            loading={inventoryShops.loading}
+          />
           <div>
-            <label className="block text-[9px] font-bold mb-1.5 uppercase text-neutral-500">Shop</label>
-            <select required value={formData.shop} onChange={e => setFormData({...formData, shop: e.target.value})} className={inputClass}>
-              <option value="">Select Shop...</option>
-              {shops.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-[9px] font-bold mb-1.5 uppercase text-neutral-500">Type</label>
-            <select required value={formData.adjustmentType} onChange={e => setFormData({...formData, adjustmentType: e.target.value})} className={inputClass}>
-              <option value="PHYSICAL_COUNT">Physical Count</option>
-              <option value="DAMAGE">Damage</option>
-              <option value="THEFT">Theft / Missing</option>
-              <option value="EXPIRED">Expired</option>
-              <option value="CORRECTION">Correction</option>
+            <label className={labelClass}>{t("adjType")} *</label>
+            <select
+              required
+              value={formData.adjustmentType}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, adjustmentType: e.target.value }))
+              }
+              className={inputClass}
+            >
+              {ADJ_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type.replace(/_/g, " ")}
+                </option>
+              ))}
             </select>
           </div>
           <div className="col-span-2">
-            <label className="block text-[9px] font-bold mb-1.5 uppercase text-neutral-500">General Reason</label>
-            <input type="text" required value={formData.reason} onChange={e => setFormData({...formData, reason: e.target.value})} className={inputClass} placeholder="e.g. Monthly stock audit" />
+            <label className={labelClass}>{t("reason")}</label>
+            <input
+              type="text"
+              value={formData.reason}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, reason: e.target.value }))
+              }
+              className={inputClass}
+            />
           </div>
         </div>
 
-        <div>
-          <div className="flex justify-between items-center mb-2">
-            <label className="block text-[9px] font-bold uppercase text-neutral-500">Products to Adjust</label>
-            <button type="button" onClick={handleAddItem} className="text-[9px] uppercase font-bold text-[#E9B10C] hover:text-black dark:hover:text-white transition-colors flex items-center gap-1">
-              <Plus size={12} /> Add Product
+        <div className="border border-neutral-200 dark:border-neutral-800 rounded-sm">
+          <div className="flex items-center justify-between px-4 py-3 bg-neutral-50 dark:bg-[#0a0a0a] border-b border-neutral-200 dark:border-neutral-800">
+            <span className="text-[10px] uppercase tracking-widest font-black text-black dark:text-white">
+              {t("items")}
+            </span>
+            <button
+              type="button"
+              onClick={addItem}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#E9B10C] text-black text-[9px] uppercase font-black tracking-widest rounded-sm hover:bg-[#d4a00a] transition-colors"
+            >
+              <Plus size={12} strokeWidth={3} />
+              {t("addItem")}
             </button>
           </div>
-          
-          <div className="space-y-2 max-h-60 overflow-y-auto pr-2 scrollbar-hide">
-            {formData.items.map((item, i) => (
-              <div key={i} className="flex gap-2 items-center bg-neutral-50 dark:bg-[#0a0a0a] p-2 border border-neutral-200 dark:border-neutral-800 rounded-sm">
-                <select required value={item.product} onChange={e => updateItem(i, 'product', e.target.value)} className={`${inputClass} flex-1`}>
-                  <option value="">Select Product...</option>
-                  {products.map(p => <option key={p._id} value={p._id}>{p.name} ({p.sku})</option>)}
-                </select>
-                <input type="number" required placeholder="New Qty" min="0" value={item.adjustedQuantity} onChange={e => updateItem(i, 'adjustedQuantity', Number(e.target.value))} className={`${inputClass} w-24`} />
-                <button type="button" onClick={() => removeItem(i)} className="p-2 text-neutral-400 hover:text-red-500 transition-colors">
-                  <Trash2 size={16} />
-                </button>
+
+          <div className="divide-y divide-neutral-200 dark:divide-neutral-800">
+            {formData.items.map((item, idx) => (
+              <div key={idx} className="p-4 grid grid-cols-12 gap-3 items-end">
+                <div className="col-span-5">
+                  <SearchableSelect
+                    label={`${t("product")} *`}
+                    value={item.product}
+                    onChange={(val) => updateItem(idx, "product", val)}
+                    options={products}
+                    placeholder={t("searchProduct")}
+                    required
+                    labelClass={labelClass}
+                    inputClass={inputClass}
+                    loading={inventoryProducts.loading}
+                  />
+                </div>
+                <div className="col-span-3">
+                  <label className={labelClass}>{t("quantity")} *</label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    inputMode="numeric"
+                    value={item.adjustedQuantity}
+                    onChange={(e) =>
+                      updateItem(idx, "adjustedQuantity", e.target.value)
+                    }
+                    className={`${inputClass} [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
+                  />
+                </div>
+                <div className="col-span-3">
+                  <label className={labelClass}>{t("itemReason")}</label>
+                  <input
+                    type="text"
+                    value={item.reason}
+                    onChange={(e) => updateItem(idx, "reason", e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+                <div className="col-span-1 flex justify-end pb-0.5">
+                  {formData.items.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeItem(idx)}
+                      className="p-2 text-red-500 hover:bg-red-500/10 rounded-sm transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
-            {formData.items.length === 0 && (
-              <div className="text-center p-4 border border-dashed border-neutral-300 dark:border-neutral-700 rounded-sm text-[9px] text-neutral-500 uppercase tracking-widest font-bold">
-                No products added yet.
-              </div>
-            )}
           </div>
         </div>
+
         <div className="flex justify-end gap-2 pt-4 border-t border-neutral-200 dark:border-neutral-800">
-          <button type="button" onClick={onClose} className="px-6 py-2 text-[10px] uppercase font-bold border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors rounded-sm">Cancel</button>
-          <button type="submit" disabled={loading} className="px-6 py-2 text-[10px] uppercase font-bold bg-[#E9B10C] hover:bg-[#d4a00a] text-black rounded-sm flex items-center gap-2 transition-colors">
-            {loading ? <Loader2 size={14} className="animate-spin" /> : 'Create Adjustment'}
+          <button
+            type="button"
+            onClick={() => onClose(false)}
+            className="px-6 py-2 text-[10px] uppercase font-bold text-neutral-500 border border-neutral-300 dark:border-neutral-700 rounded-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          >
+            {t("cancel")}
+          </button>
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-6 py-2 bg-[#E9B10C] text-[10px] uppercase font-bold text-black rounded-sm flex items-center gap-2 hover:bg-[#d4a00a] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {loading ? (
+              <Loader2 className="animate-spin" size={14} />
+            ) : isQuick ? (
+              t("quickAdjust")
+            ) : (
+              t("createAdjustment")
+            )}
           </button>
         </div>
       </form>
